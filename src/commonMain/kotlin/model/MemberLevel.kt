@@ -16,7 +16,7 @@ data class MemberLevel(
     val experience: Long = 0,
     val discount: Int = 100,
     val icon: String? = null,
-    val status: Int = 0,
+    val status: Int = 1,
     @CreatedAt
     val createdAt: String? = null,
     @UpdatedAt

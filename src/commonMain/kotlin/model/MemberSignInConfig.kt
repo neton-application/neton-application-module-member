@@ -14,7 +14,7 @@ data class MemberSignInConfig(
     val day: Int,
     val point: Int,
     val experience: Int = 0,
-    val status: Int = 0,
+    val status: Int = 1,
     @CreatedAt
     val createdAt: String? = null,
     @UpdatedAt

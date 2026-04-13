@@ -16,7 +16,7 @@ data class Member(
     val password: String? = null,
     val nickname: String,
     val avatar: String? = null,
-    val status: Int = 0,
+    val status: Int = 1,
     val levelId: Long? = null,
     val experience: Long = 0,
     val point: Int = 0,

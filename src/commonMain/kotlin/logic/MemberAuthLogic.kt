@@ -10,11 +10,12 @@ import neton.security.identity.UserId
 import neton.logging.Logger
 import neton.core.http.BadRequestException
 import neton.core.http.NotFoundException
-import infra.PasswordEncoder
 import neton.security.jwt.JwtAuthenticatorV1
 import neton.redis.RedisClient
 import logic.MessageSendLogic
 import logic.SocialUserLogic
+import neton.security.identity.AuthenticationException
+import neton.security.password.PasswordHasher
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.Clock
@@ -34,8 +35,12 @@ class MemberAuthLogic(
         private const val SMS_CODE_TTL_SECONDS = 300L  // 5 minutes
     }
 
+    private fun maskMobile(mobile: String): String {
+        return if (mobile.length < 7) "***" else "${mobile.take(3)}****${mobile.takeLast(4)}"
+    }
+
     suspend fun login(request: MemberLoginRequest): MemberLoginResponse {
-        val member = MemberTable.oneWhere {
+        var member = MemberTable.oneWhere {
             Member::mobile eq request.mobile
         } ?: throw BadRequestException("Invalid mobile or password")
 
@@ -43,11 +48,18 @@ class MemberAuthLogic(
             throw BadRequestException("Password not set for this account")
         }
 
-        if (!PasswordEncoder.matches(request.password ?: "", member.password)) {
+        val password = request.password ?: ""
+        val storedPassword = member.password
+        val passwordVerification = PasswordHasher.verify(password, storedPassword)
+        if (!passwordVerification.verified) {
             throw BadRequestException("Invalid mobile or password")
         }
+        if (passwordVerification.needsRehash) {
+            member = member.copy(password = PasswordHasher.hash(password))
+            MemberTable.update(member)
+        }
 
-        if (member.status != 0) {
+        if (member.status == 0) {
             throw BadRequestException("Account is disabled")
         }
 
@@ -58,7 +70,7 @@ class MemberAuthLogic(
         val now = Clock.System.now().toEpochMilliseconds()
         MemberTable.update(member.copy(loginDate = now))
 
-        log.info("Member login successful: userId=${member.id}, mobile=${request.mobile}")
+        log.info("member.login.success", mapOf("userId" to member.id, "mobile" to maskMobile(request.mobile)))
 
         return MemberLoginResponse(
             userId = member.id,
@@ -85,10 +97,10 @@ class MemberAuthLogic(
                 nickname = "Member_${request.mobile.takeLast(4)}"
             )
             member = MemberTable.insert(newMember)
-            log.info("Auto-registered new member via SMS login: userId=${member.id}, mobile=${request.mobile}")
+            log.info("member.sms.auto_register", mapOf("userId" to member.id, "mobile" to maskMobile(request.mobile)))
         }
 
-        if (member.status != 0) {
+        if (member.status == 0) {
             throw BadRequestException("Account is disabled")
         }
 
@@ -99,7 +111,7 @@ class MemberAuthLogic(
         val now = Clock.System.now().toEpochMilliseconds()
         MemberTable.update(member.copy(loginDate = now))
 
-        log.info("Member SMS login successful: userId=${member.id}, mobile=${request.mobile}")
+        log.info("member.sms.login.success", mapOf("userId" to member.id, "mobile" to maskMobile(request.mobile)))
 
         return MemberLoginResponse(
             userId = member.id,
@@ -112,28 +124,32 @@ class MemberAuthLogic(
     suspend fun logout(userId: Long) {
         // Blacklist the user's tokens
         redis?.set("auth:member:blacklist:$userId", "1", ttl = ACCESS_TOKEN_EXPIRES.seconds)
-        log.info("Member logout: userId=$userId")
+        log.info("member.logout", mapOf("userId" to userId))
     }
 
     suspend fun refreshToken(refreshToken: String): MemberLoginResponse {
-        // Verify the refresh token by parsing its claims
         val jwtInstance = jwt ?: throw BadRequestException("JWT service not available")
-
-        // Parse the refresh token to extract userId
-        val userId = parseTokenUserId(refreshToken)
-            ?: throw BadRequestException("Invalid or expired refresh token")
+        val verifiedToken = try {
+            jwtInstance.verifyToken(refreshToken)
+        } catch (_: AuthenticationException) {
+            throw BadRequestException("Invalid or expired refresh token")
+        }
+        if (verifiedToken.claimString("type") != "refresh" || verifiedToken.claimString("scope") != "member") {
+            throw BadRequestException("Invalid or expired refresh token")
+        }
+        val userId = verifiedToken.identity.userId.value.toLong()
 
         val member = MemberTable.get(userId)
             ?: throw NotFoundException("Member not found")
 
-        if (member.status != 0) {
+        if (member.status == 0) {
             throw BadRequestException("Account is disabled")
         }
 
         val newAccessToken = generateAccessToken(member.id)
         val newRefreshToken = generateRefreshToken(member.id)
 
-        log.info("Member token refreshed: userId=$userId")
+        log.info("member.token.refreshed", mapOf("userId" to userId))
 
         return MemberLoginResponse(
             userId = userId,
@@ -150,7 +166,7 @@ class MemberAuthLogic(
             // Fallback: store code directly in Redis
             val code = (100000..999999).random().toString()
             redis?.set("$SMS_CODE_PREFIX$mobile", code, ttl = SMS_CODE_TTL_SECONDS.seconds)
-            log.info("SMS code generated for mobile: $mobile (code=$code)")
+            log.info("member.sms.code.generated", mapOf("mobile" to maskMobile(mobile)))
         }
     }
 
@@ -188,13 +204,13 @@ class MemberAuthLogic(
 
             // Bind the social account to the new member
             social.bind(member.id, userType = 2, socialType, code, redirectUri)
-            log.info("Auto-registered new member via social login: userId=${member.id}, socialType=$socialType")
+            log.info("member.social.auto_register", mapOf("userId" to member.id, "socialType" to socialType))
         } else {
             member = MemberTable.get(socialUser.userId)
                 ?: throw NotFoundException("Bound member not found")
         }
 
-        if (member.status != 0) {
+        if (member.status == 0) {
             throw BadRequestException("Account is disabled")
         }
 
@@ -204,7 +220,7 @@ class MemberAuthLogic(
         val now = Clock.System.now().toEpochMilliseconds()
         MemberTable.update(member.copy(loginDate = now))
 
-        log.info("Member social login successful: userId=${member.id}, socialType=$socialType")
+        log.info("member.social.login.success", mapOf("userId" to member.id, "socialType" to socialType))
 
         return MemberLoginResponse(
             userId = member.id,
@@ -225,7 +241,7 @@ class MemberAuthLogic(
             throw BadRequestException("Invalid SMS code")
         }
         // Delete the code after successful verification
-        redis?.delete("$SMS_CODE_PREFIX$mobile")
+        redis.delete("$SMS_CODE_PREFIX$mobile")
     }
 
     private fun generateAccessToken(userId: Long): String {
@@ -248,52 +264,5 @@ class MemberAuthLogic(
             expiresInSeconds = REFRESH_TOKEN_EXPIRES,
             extraClaims = mapOf("type" to "refresh", "scope" to "member")
         )
-    }
-
-    private fun parseTokenUserId(token: String): Long? {
-        // JWT format: header.payload.signature
-        // Payload is base64url encoded JSON containing "sub" (userId)
-        return try {
-            val parts = token.split(".")
-            if (parts.size != 3) return null
-            val payload = parts[1]
-            // Decode base64url
-            val decoded = decodeBase64Url(payload)
-            // Extract "sub" field from JSON
-            val subRegex = """"sub"\s*:\s*"?(\d+)"?""".toRegex()
-            val match = subRegex.find(decoded)
-            match?.groupValues?.get(1)?.toLongOrNull()
-        } catch (_: Exception) {
-            null
-        }
-    }
-
-    private fun decodeBase64Url(input: String): String {
-        val padded = input.replace('-', '+').replace('_', '/')
-        val padding = when (padded.length % 4) {
-            2 -> "$padded=="
-            3 -> "$padded="
-            else -> padded
-        }
-        // Simple base64 decode for ASCII/UTF-8 JWT payloads
-        val chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
-        val bytes = mutableListOf<Byte>()
-        var i = 0
-        while (i < padding.length) {
-            if (padding[i] == '=') break
-            val a = chars.indexOf(padding[i])
-            val b = if (i + 1 < padding.length) chars.indexOf(padding[i + 1]) else 0
-            val c = if (i + 2 < padding.length && padding[i + 2] != '=') chars.indexOf(padding[i + 2]) else 0
-            val d = if (i + 3 < padding.length && padding[i + 3] != '=') chars.indexOf(padding[i + 3]) else 0
-            bytes.add(((a shl 2) or (b shr 4)).toByte())
-            if (i + 2 < padding.length && padding[i + 2] != '=') {
-                bytes.add((((b and 0xF) shl 4) or (c shr 2)).toByte())
-            }
-            if (i + 3 < padding.length && padding[i + 3] != '=') {
-                bytes.add((((c and 0x3) shl 6) or d).toByte())
-            }
-            i += 4
-        }
-        return bytes.toByteArray().decodeToString()
     }
 }

@@ -1,5 +1,7 @@
 package controller.admin.signin
 
+import controller.admin.signin.dto.CreateMemberSignInConfigRequest
+import controller.admin.signin.dto.UpdateMemberSignInConfigRequest
 import logic.MemberSignInLogic
 import model.MemberSignInConfig
 import neton.core.annotations.Controller
@@ -16,13 +18,28 @@ class MemberSignInConfigController(
 ) {
 
     @Post("/create")
-    suspend fun create(@Body config: MemberSignInConfig): Long {
-        return memberSignInLogic.createConfig(config)
+    suspend fun create(@Body request: CreateMemberSignInConfigRequest): Long {
+        return memberSignInLogic.createConfig(
+            MemberSignInConfig(
+                day = request.day,
+                point = request.point,
+                experience = request.experience,
+                status = request.status
+            )
+        )
     }
 
     @Put("/update")
-    suspend fun update(@Body config: MemberSignInConfig) {
-        memberSignInLogic.updateConfig(config)
+    suspend fun update(@Body request: UpdateMemberSignInConfigRequest) {
+        memberSignInLogic.updateConfig(
+            MemberSignInConfig(
+                id = request.id,
+                day = request.day,
+                point = request.point,
+                experience = request.experience,
+                status = request.status
+            )
+        )
     }
 
     @Delete("/delete/{id}")

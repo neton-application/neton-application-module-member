@@ -4,6 +4,7 @@ import logic.MemberLevelLogic
 import model.MemberLevelRecord
 import neton.core.annotations.Controller
 import neton.core.annotations.Get
+import neton.core.annotations.PathVariable
 
 @Controller("/member/level-record")
 class MemberLevelRecordController(
@@ -18,8 +19,8 @@ class MemberLevelRecordController(
         levelId: Long? = null
     ) = memberLevelLogic.pageLevelRecords(pageNo, pageSize, userId, levelId)
 
-    @Get("/get")
-    suspend fun get(id: Long): MemberLevelRecord? {
+    @Get("/get/{id}")
+    suspend fun get(@PathVariable id: Long): MemberLevelRecord? {
         return memberLevelLogic.getLevelRecord(id)
     }
 }

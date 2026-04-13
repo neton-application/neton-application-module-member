@@ -1,5 +1,7 @@
 package controller.admin.member
 
+import controller.admin.member.dto.CreateMemberGroupRequest
+import controller.admin.member.dto.UpdateMemberGroupRequest
 import model.MemberGroup
 import table.MemberGroupTable
 import neton.database.dsl.*
@@ -17,13 +19,26 @@ import neton.core.annotations.Query
 class MemberGroupController {
 
     @Post("/create")
-    suspend fun create(@Body group: MemberGroup): Long {
-        return MemberGroupTable.insert(group).id
+    suspend fun create(@Body request: CreateMemberGroupRequest): Long {
+        return MemberGroupTable.insert(
+            MemberGroup(
+                name = request.name,
+                remark = request.remark,
+                status = request.status
+            )
+        ).id
     }
 
     @Put("/update")
-    suspend fun update(@Body group: MemberGroup) {
-        MemberGroupTable.update(group)
+    suspend fun update(@Body request: UpdateMemberGroupRequest) {
+        MemberGroupTable.update(
+            MemberGroup(
+                id = request.id,
+                name = request.name,
+                remark = request.remark,
+                status = request.status
+            )
+        )
     }
 
     @Delete("/delete/{id}")

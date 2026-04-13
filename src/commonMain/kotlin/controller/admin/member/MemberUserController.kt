@@ -1,7 +1,8 @@
 package controller.admin.member
 
-import controller.admin.member.dto.UserUpdateLevelReqVO
-import controller.admin.member.dto.UserPointUpdateReqVO
+import controller.admin.member.dto.UpdateMemberRequest
+import controller.admin.member.dto.UpdateMemberUserLevelRequest
+import controller.admin.member.dto.UpdateMemberUserPointRequest
 import logic.MemberLogic
 import model.Member
 import neton.core.annotations.Controller
@@ -17,17 +18,28 @@ class MemberUserController(
 ) {
 
     @Put("/update")
-    suspend fun update(@Body member: Member) {
-        memberLogic.update(member)
+    suspend fun update(@Body request: UpdateMemberRequest) {
+        val existing = memberLogic.get(request.id)
+            ?: throw IllegalArgumentException("Member not found: ${request.id}")
+        memberLogic.update(
+            existing.copy(
+                mobile = request.mobile,
+                nickname = request.nickname,
+                avatar = request.avatar,
+                status = request.status,
+                levelId = request.levelId,
+                groupId = request.groupId
+            )
+        )
     }
 
     @Put("/update-level")
-    suspend fun updateLevel(@Body req: UserUpdateLevelReqVO) {
+    suspend fun updateLevel(@Body req: UpdateMemberUserLevelRequest) {
         memberLogic.updateLevel(req.id, req.levelId, 0, null)
     }
 
     @Put("/update-point")
-    suspend fun updatePoint(@Body req: UserPointUpdateReqVO) {
+    suspend fun updatePoint(@Body req: UpdateMemberUserPointRequest) {
         memberLogic.updatePoint(req.id, req.point, 1, "Admin adjust", null)
     }
 

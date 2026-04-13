@@ -1,5 +1,7 @@
 package controller.admin.level
 
+import controller.admin.level.dto.CreateMemberLevelRequest
+import controller.admin.level.dto.UpdateMemberLevelRequest
 import logic.MemberLevelLogic
 import model.MemberLevel
 import neton.core.annotations.Controller
@@ -16,13 +18,32 @@ class MemberLevelController(
 ) {
 
     @Post("/create")
-    suspend fun create(@Body level: MemberLevel): Long {
-        return memberLevelLogic.create(level)
+    suspend fun create(@Body request: CreateMemberLevelRequest): Long {
+        return memberLevelLogic.create(
+            MemberLevel(
+                name = request.name,
+                level = request.level,
+                experience = request.experience,
+                discount = request.discount,
+                icon = request.icon,
+                status = request.status
+            )
+        )
     }
 
     @Put("/update")
-    suspend fun update(@Body level: MemberLevel) {
-        memberLevelLogic.update(level)
+    suspend fun update(@Body request: UpdateMemberLevelRequest) {
+        memberLevelLogic.update(
+            MemberLevel(
+                id = request.id,
+                name = request.name,
+                level = request.level,
+                experience = request.experience,
+                discount = request.discount,
+                icon = request.icon,
+                status = request.status
+            )
+        )
     }
 
     @Delete("/delete/{id}")

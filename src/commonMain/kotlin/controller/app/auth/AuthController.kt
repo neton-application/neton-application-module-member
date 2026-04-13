@@ -7,11 +7,33 @@ import controller.admin.auth.dto.SocialLoginRequest
 import controller.admin.auth.dto.SocialRedirectVO
 import kotlinx.serialization.Serializable
 import neton.core.annotations.*
+import neton.validation.annotations.NotBlank
+import neton.validation.annotations.Pattern
+import neton.validation.annotations.Size
 
 @Serializable
 data class ValidateSmsCodeRequest(
+    @property:NotBlank
+    @property:Pattern(regex = "^1\\d{10}$", message = "mobile format is invalid")
     val mobile: String,
+
+    @property:NotBlank
+    @property:Size(min = 4, max = 8)
     val code: String
+)
+
+@Serializable
+data class MemberRefreshTokenRequest(
+    @property:NotBlank
+    @property:Size(min = 32, max = 4096)
+    val refreshToken: String
+)
+
+@Serializable
+data class MemberSendSmsCodeRequest(
+    @property:NotBlank
+    @property:Pattern(regex = "^1\\d{10}$", message = "mobile format is invalid")
+    val mobile: String
 )
 
 @Serializable
@@ -43,16 +65,14 @@ class AuthController(
 
     @Post("/refresh-token")
     @AllowAnonymous
-    suspend fun refreshToken(@Body request: Map<String, String>): MemberLoginResponse {
-        val token = request["refreshToken"] ?: throw neton.core.http.BadRequestException("refreshToken is required")
-        return memberAuthLogic.refreshToken(token)
+    suspend fun refreshToken(@Body request: MemberRefreshTokenRequest): MemberLoginResponse {
+        return memberAuthLogic.refreshToken(request.refreshToken)
     }
 
     @Post("/send-sms-code")
     @AllowAnonymous
-    suspend fun sendSmsCode(@Body request: Map<String, String>) {
-        val mobile = request["mobile"] ?: throw neton.core.http.BadRequestException("mobile is required")
-        memberAuthLogic.sendSmsCode(mobile)
+    suspend fun sendSmsCode(@Body request: MemberSendSmsCodeRequest) {
+        memberAuthLogic.sendSmsCode(request.mobile)
     }
 
     @Post("/validate-sms-code")

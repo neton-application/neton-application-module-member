@@ -1,5 +1,7 @@
 package controller.admin.member
 
+import controller.admin.member.dto.CreateMemberTagRequest
+import controller.admin.member.dto.UpdateMemberTagRequest
 import model.MemberTag
 import table.MemberTagTable
 import neton.database.dsl.*
@@ -17,13 +19,13 @@ import neton.core.annotations.Query
 class MemberTagController {
 
     @Post("/create")
-    suspend fun create(@Body tag: MemberTag): Long {
-        return MemberTagTable.insert(tag).id
+    suspend fun create(@Body request: CreateMemberTagRequest): Long {
+        return MemberTagTable.insert(MemberTag(name = request.name)).id
     }
 
     @Put("/update")
-    suspend fun update(@Body tag: MemberTag) {
-        MemberTagTable.update(tag)
+    suspend fun update(@Body request: UpdateMemberTagRequest) {
+        MemberTagTable.update(MemberTag(id = request.id, name = request.name))
     }
 
     @Delete("/delete/{id}")

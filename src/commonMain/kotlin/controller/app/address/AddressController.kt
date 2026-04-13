@@ -1,48 +1,72 @@
 package controller.app.address
 
+import controller.app.address.dto.CreateAddressRequest
+import controller.app.address.dto.UpdateAddressRequest
 import model.Address
-import table.AddressTable
+import neton.core.annotations.*
+import neton.core.http.NotFoundException
+import neton.core.interfaces.Identity
 import neton.database.dsl.*
-
-import neton.core.annotations.Controller
-import neton.core.annotations.Get
-import neton.core.annotations.Post
-import neton.core.annotations.Put
-import neton.core.annotations.Delete
+import table.AddressTable
 
 @Controller("/member/address")
 class AddressController {
 
     @Post("/create")
-    suspend fun create(address: Address): Long {
-        // If setting as default, clear other defaults first
-        if (address.defaultStatus == 1) {
-            clearDefaultAddress(address.userId)
+    suspend fun create(identity: Identity, @Body request: CreateAddressRequest): Long {
+        val userId = identity.id.toLong()
+        if (request.defaultStatus == 1) {
+            clearDefaultAddress(userId)
         }
+        val address = Address(
+            userId = userId,
+            name = request.name,
+            mobile = request.mobile,
+            areaCode = request.areaCode,
+            detailAddress = request.detailAddress,
+            defaultStatus = request.defaultStatus,
+        )
         return AddressTable.insert(address).id
     }
 
     @Put("/update")
-    suspend fun update(address: Address) {
-        // If setting as default, clear other defaults first
-        if (address.defaultStatus == 1) {
-            clearDefaultAddress(address.userId)
+    suspend fun update(identity: Identity, @Body request: UpdateAddressRequest) {
+        val userId = identity.id.toLong()
+        val existing = AddressTable.get(request.id)
+            ?.takeIf { it.userId == userId }
+            ?: throw NotFoundException("Address not found: ${request.id}")
+        if (request.defaultStatus == 1) {
+            clearDefaultAddress(userId)
         }
-        AddressTable.update(address)
+        AddressTable.update(
+            existing.copy(
+                name = request.name,
+                mobile = request.mobile,
+                areaCode = request.areaCode,
+                detailAddress = request.detailAddress,
+                defaultStatus = request.defaultStatus,
+            )
+        )
     }
 
-    @Delete("/delete")
-    suspend fun delete(id: Long) {
-        AddressTable.destroy(id)
+    @Delete("/delete/{id}")
+    suspend fun delete(identity: Identity, @PathVariable id: Long) {
+        val userId = identity.id.toLong()
+        val existing = AddressTable.get(id)
+            ?.takeIf { it.userId == userId }
+            ?: throw NotFoundException("Address not found: $id")
+        AddressTable.destroy(existing.id)
     }
 
-    @Get("/get")
-    suspend fun get(id: Long): Address? {
-        return AddressTable.get(id)
+    @Get("/get/{id}")
+    suspend fun get(identity: Identity, @PathVariable id: Long): Address? {
+        val userId = identity.id.toLong()
+        return AddressTable.get(id)?.takeIf { it.userId == userId }
     }
 
     @Get("/list")
-    suspend fun list(userId: Long): List<Address> {
+    suspend fun list(identity: Identity): List<Address> {
+        val userId = identity.id.toLong()
         return AddressTable.query {
             where {
                 Address::userId eq userId
@@ -52,7 +76,8 @@ class AddressController {
     }
 
     @Get("/get-default")
-    suspend fun getDefault(userId: Long): Address? {
+    suspend fun getDefault(identity: Identity): Address? {
+        val userId = identity.id.toLong()
         return AddressTable.oneWhere {
             and(
                 Address::userId eq userId,

@@ -13,7 +13,7 @@ data class MemberGroup(
     val id: Long = 0,
     val name: String,
     val remark: String? = null,
-    val status: Int = 0,
+    val status: Int = 1,
     @CreatedAt
     val createdAt: String? = null,
     @UpdatedAt
