@@ -3,6 +3,7 @@ package controller.admin.signin
 import logic.MemberSignInLogic
 import neton.core.annotations.Controller
 import neton.core.annotations.Get
+import neton.core.annotations.Permission
 
 @Controller("/member/sign-in/record")
 class MemberSignInRecordController(
@@ -10,6 +11,7 @@ class MemberSignInRecordController(
 ) {
 
     @Get("/page")
+    @Permission("member:signin:page")
     suspend fun page(
         pageNo: Int = 1,
         pageSize: Int = 10,

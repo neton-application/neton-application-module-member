@@ -48,12 +48,14 @@ class AuthController(
 
     @Post("/login")
     @AllowAnonymous
+    @RateLimit(windowSeconds = 300, maxRequests = 10, scope = RateLimitScope.IP, message = "Login attempts exceeded, please try again later")
     suspend fun login(@Body request: MemberLoginRequest): MemberLoginResponse {
         return memberAuthLogic.login(request)
     }
 
     @Post("/sms-login")
     @AllowAnonymous
+    @RateLimit(windowSeconds = 60, maxRequests = 5, scope = RateLimitScope.IP, message = "SMS login attempts exceeded, please try again later")
     suspend fun smsLogin(@Body request: MemberLoginRequest): MemberLoginResponse {
         return memberAuthLogic.smsLogin(request)
     }
@@ -71,12 +73,14 @@ class AuthController(
 
     @Post("/send-sms-code")
     @AllowAnonymous
+    @RateLimit(windowSeconds = 60, maxRequests = 5, scope = RateLimitScope.IP, message = "SMS code sending limit exceeded, please try again later")
     suspend fun sendSmsCode(@Body request: MemberSendSmsCodeRequest) {
         memberAuthLogic.sendSmsCode(request.mobile)
     }
 
     @Post("/validate-sms-code")
     @AllowAnonymous
+    @RateLimit(windowSeconds = 60, maxRequests = 5, scope = RateLimitScope.IP, message = "Too many verification attempts, please try again later")
     suspend fun validateSmsCode(@Body request: ValidateSmsCodeRequest): ValidateSmsCodeResponse {
         val valid = memberAuthLogic.validateSmsCode(request.mobile, request.code)
         return ValidateSmsCodeResponse(valid = valid)
@@ -91,6 +95,7 @@ class AuthController(
 
     @Post("/social-login")
     @AllowAnonymous
+    @RateLimit(windowSeconds = 300, maxRequests = 10, scope = RateLimitScope.IP, message = "Social login attempts exceeded, please try again later")
     suspend fun socialLogin(@Body request: SocialLoginRequest): MemberLoginResponse {
         return memberAuthLogic.socialLogin(request.socialType, request.code, request.redirectUri ?: "")
     }

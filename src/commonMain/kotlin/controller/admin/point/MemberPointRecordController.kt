@@ -3,6 +3,7 @@ package controller.admin.point
 import logic.MemberPointLogic
 import neton.core.annotations.Controller
 import neton.core.annotations.Get
+import neton.core.annotations.Permission
 
 @Controller("/member/point/record")
 class MemberPointRecordController(
@@ -10,6 +11,7 @@ class MemberPointRecordController(
 ) {
 
     @Get("/page")
+    @Permission("member:point:page")
     suspend fun page(
         pageNo: Int = 1,
         pageSize: Int = 10,

@@ -53,17 +53,18 @@ class MemberLogic(
         val member = MemberTable.get(userId)
             ?: throw IllegalArgumentException("Member not found: $userId")
 
-        MemberTable.update(member.copy(levelId = levelId))
+        // Update member + create level record in a single transaction
+        MemberTable.transaction {
+            MemberTable.update(member.copy(levelId = levelId))
 
-        // Create level record
-        val record = MemberLevelRecord(
-            userId = userId,
-            levelId = levelId,
-            level = level,
-            reason = reason,
-            description = "Admin updated member level"
-        )
-        MemberLevelRecordTable.insert(record)
+            MemberLevelRecordTable.insert(MemberLevelRecord(
+                userId = userId,
+                levelId = levelId,
+                level = level,
+                reason = reason,
+                description = "Admin updated member level"
+            ))
+        }
 
         log.info("Updated member level: userId=$userId, levelId=$levelId, level=$level")
     }
@@ -73,18 +74,20 @@ class MemberLogic(
             ?: throw IllegalArgumentException("Member not found: $userId")
 
         val newPoint = member.point + point
-        MemberTable.update(member.copy(point = newPoint))
 
-        // Create point record
-        val record = MemberPointRecord(
-            userId = userId,
-            bizType = bizType,
-            title = title,
-            point = point,
-            totalPoint = newPoint,
-            description = description
-        )
-        MemberPointRecordTable.insert(record)
+        // Update member point + create point record in a single transaction
+        MemberTable.transaction {
+            MemberTable.update(member.copy(point = newPoint))
+
+            MemberPointRecordTable.insert(MemberPointRecord(
+                userId = userId,
+                bizType = bizType,
+                title = title,
+                point = point,
+                totalPoint = newPoint,
+                description = description
+            ))
+        }
 
         log.info("Updated member point: userId=$userId, point=$point, totalPoint=$newPoint")
     }

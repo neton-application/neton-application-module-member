@@ -16,6 +16,7 @@ import logic.MessageSendLogic
 import logic.SocialUserLogic
 import neton.security.identity.AuthenticationException
 import neton.security.password.PasswordHasher
+import kotlin.random.Random
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.Clock
@@ -163,8 +164,9 @@ class MemberAuthLogic(
         if (messageSendLogic != null) {
             messageSendLogic.sendVerificationCode(mobile, "member_login")
         } else {
-            // Fallback: store code directly in Redis
-            val code = (100000..999999).random().toString()
+            // Fallback: store code directly in Redis.
+            // Random.Default maps to arc4random on Native (cryptographically secure).
+            val code = Random.Default.nextInt(100000, 1000000).toString()
             redis?.set("$SMS_CODE_PREFIX$mobile", code, ttl = SMS_CODE_TTL_SECONDS.seconds)
             log.info("member.sms.code.generated", mapOf("mobile" to maskMobile(mobile)))
         }
@@ -233,19 +235,30 @@ class MemberAuthLogic(
     // --- Private helpers ---
 
     private suspend fun verifySmsCode(mobile: String, code: String) {
-        val storedCode = redis?.getValue("$SMS_CODE_PREFIX$mobile")
-        if (storedCode == null) {
-            throw BadRequestException("SMS code expired or not sent")
+        val redisInstance = redis ?: throw BadRequestException("SMS code service unavailable")
+        val key = "$SMS_CODE_PREFIX$mobile"
+
+        // Atomically verify and consume the SMS code via Lua script to prevent TOCTOU.
+        // Returns: 0 = key not found, 1 = wrong code, 2 = matched and deleted.
+        val script = """
+            local val = redis.call('GET', KEYS[1])
+            if val == false then return 0 end
+            if val == ARGV[1] then
+                redis.call('DEL', KEYS[1])
+                return 2
+            end
+            return 1
+        """.trimIndent()
+
+        when (redisInstance.evalToLong(script, listOf(key), listOf(code))) {
+            0L -> throw BadRequestException("SMS code expired or not sent")
+            1L -> throw BadRequestException("Invalid SMS code")
+            // 2L = matched and consumed; fall through
         }
-        if (storedCode != code) {
-            throw BadRequestException("Invalid SMS code")
-        }
-        // Delete the code after successful verification
-        redis.delete("$SMS_CODE_PREFIX$mobile")
     }
 
     private fun generateAccessToken(userId: Long): String {
-        val jwtInstance = jwt ?: return "jwt-not-configured"
+        val jwtInstance = jwt ?: throw IllegalStateException("JWT is not configured — set security.jwt.secretKey")
         return jwtInstance.createToken(
             userId = UserId(userId.toULong()),
             roles = emptySet(),
@@ -256,7 +269,7 @@ class MemberAuthLogic(
     }
 
     private fun generateRefreshToken(userId: Long): String {
-        val jwtInstance = jwt ?: return "jwt-not-configured"
+        val jwtInstance = jwt ?: throw IllegalStateException("JWT is not configured — set security.jwt.secretKey")
         return jwtInstance.createToken(
             userId = UserId(userId.toULong()),
             roles = emptySet(),

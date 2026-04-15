@@ -11,6 +11,10 @@ class MemberPointLogic(
     private val log: Logger
 ) {
 
+    companion object {
+        const val BIZ_TYPE_EXPERIENCE = 100
+    }
+
     suspend fun pagePointRecords(
         page: Int,
         size: Int,
@@ -41,8 +45,7 @@ class MemberPointLogic(
             where {
                 and(
                     whenPresent(userId) { MemberPointRecord::userId eq it },
-                    // Experience records use a specific bizType
-                    MemberPointRecord::bizType eq 100
+                    MemberPointRecord::bizType eq BIZ_TYPE_EXPERIENCE
                 )
             }
             orderBy(MemberPointRecord::id.desc())

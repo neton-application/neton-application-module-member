@@ -15,7 +15,7 @@ import neton.redis.RedisClient
 import neton.security.password.PasswordHasher
 import table.MemberTable
 
-@Controller("/member/user")
+@Controller("/app/member/user")
 class MemberUserController(
     private val memberLogic: MemberLogic,
     private val redis: RedisClient? = null

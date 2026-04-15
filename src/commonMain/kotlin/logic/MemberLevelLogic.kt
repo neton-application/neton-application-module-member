@@ -42,7 +42,7 @@ class MemberLevelLogic(
     suspend fun listAllSimple(): List<MemberLevel> {
         return MemberLevelTable.query {
             where {
-                MemberLevel::status eq 0
+                MemberLevel::status eq 1
             }
             orderBy(MemberLevel::level.asc())
         }.list()
@@ -51,7 +51,7 @@ class MemberLevelLogic(
     suspend fun listForApp(): List<MemberLevel> {
         return MemberLevelTable.query {
             where {
-                MemberLevel::status eq 0
+                MemberLevel::status eq 1
             }
             orderBy(MemberLevel::level.asc())
         }.list()

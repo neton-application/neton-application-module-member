@@ -49,6 +49,10 @@ object MemberModuleInitializer : ModuleInitializer {
         ctx.bind(MemberLevelLogic::class, MemberLevelLogic(loggerFactory.get("logic.member-level")))
         ctx.bind(MemberPointLogic::class, MemberPointLogic(loggerFactory.get("logic.member-point")))
         ctx.bind(MemberSignInLogic::class, MemberSignInLogic(loggerFactory.get("logic.member-signin")))
+        ctx.bind(MemberGroupLogic::class, MemberGroupLogic(loggerFactory.get("logic.member-group")))
+        ctx.bind(MemberTagLogic::class, MemberTagLogic(loggerFactory.get("logic.member-tag")))
+        ctx.bind(MemberAddressLogic::class, MemberAddressLogic(loggerFactory.get("logic.member-address")))
+        ctx.bind(MemberConfigLogic::class, MemberConfigLogic(loggerFactory.get("logic.member-config")))
 
         // 注册 KSP 生成的路由
         neton.module.member.generated.MemberRouteInitializer.initialize(ctx)

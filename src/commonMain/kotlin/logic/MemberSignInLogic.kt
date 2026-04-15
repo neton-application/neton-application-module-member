@@ -45,7 +45,7 @@ class MemberSignInLogic(
     suspend fun listConfigs(): List<MemberSignInConfig> {
         return MemberSignInConfigTable.query {
             where {
-                MemberSignInConfig::status eq 0
+                MemberSignInConfig::status eq 1
             }
             orderBy(MemberSignInConfig::day.asc())
         }.list()
@@ -66,54 +66,55 @@ class MemberSignInLogic(
         val config = MemberSignInConfigTable.oneWhere {
             and(
                 MemberSignInConfig::day eq nextDay,
-                MemberSignInConfig::status eq 0
+                MemberSignInConfig::status eq 1
             )
         }
 
         val point = config?.point ?: 0
         val experience = config?.experience ?: 0
 
-        // Create sign-in record
-        val record = MemberSignInRecord(
-            userId = userId,
-            day = nextDay,
-            point = point,
-            experience = experience
-        )
-        val insertedRecord = MemberSignInRecordTable.insert(record)
+        // Create sign-in record + award points + award experience in a single transaction
+        return MemberSignInRecordTable.transaction {
+            // Create sign-in record
+            val insertedRecord = MemberSignInRecordTable.insert(MemberSignInRecord(
+                userId = userId,
+                day = nextDay,
+                point = point,
+                experience = experience
+            ))
 
-        // Award points if applicable
-        if (point > 0) {
-            val member = MemberTable.get(userId)
-            if (member != null) {
-                val newPoint = member.point + point
-                MemberTable.update(member.copy(point = newPoint))
+            // Award points if applicable
+            if (point > 0) {
+                val member = MemberTable.get(userId)
+                if (member != null) {
+                    val newPoint = member.point + point
+                    MemberTable.update(member.copy(point = newPoint))
 
-                val pointRecord = MemberPointRecord(
-                    userId = userId,
-                    bizType = 1, // Sign-in type
-                    bizId = insertedRecord.id.toString(),
-                    title = "Sign-in reward (Day $nextDay)",
-                    point = point,
-                    totalPoint = newPoint,
-                    description = "Daily sign-in reward"
-                )
-                MemberPointRecordTable.insert(pointRecord)
+                    MemberPointRecordTable.insert(MemberPointRecord(
+                        userId = userId,
+                        bizType = 1, // Sign-in type
+                        bizId = insertedRecord.id.toString(),
+                        title = "Sign-in reward (Day $nextDay)",
+                        point = point,
+                        totalPoint = newPoint,
+                        description = "Daily sign-in reward"
+                    ))
+                }
             }
-        }
 
-        // Award experience if applicable
-        if (experience > 0) {
-            val member = MemberTable.get(userId)
-            if (member != null) {
-                val newExperience = member.experience + experience
-                MemberTable.update(member.copy(experience = newExperience))
+            // Award experience if applicable
+            if (experience > 0) {
+                val member = MemberTable.get(userId)
+                if (member != null) {
+                    val newExperience = member.experience + experience
+                    MemberTable.update(member.copy(experience = newExperience))
+                }
             }
+
+            log.info("Member signed in: userId=$userId, day=$nextDay, point=$point, experience=$experience")
+
+            insertedRecord
         }
-
-        log.info("Member signed in: userId=$userId, day=$nextDay, point=$point, experience=$experience")
-
-        return insertedRecord
     }
 
     suspend fun pageRecords(

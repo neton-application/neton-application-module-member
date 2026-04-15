@@ -6,6 +6,7 @@ import logic.MemberSignInLogic
 import model.MemberSignInConfig
 import neton.core.annotations.Controller
 import neton.core.annotations.Get
+import neton.core.annotations.Permission
 import neton.core.annotations.Post
 import neton.core.annotations.Put
 import neton.core.annotations.Delete
@@ -18,6 +19,7 @@ class MemberSignInConfigController(
 ) {
 
     @Post("/create")
+    @Permission("member:signin:create")
     suspend fun create(@Body request: CreateMemberSignInConfigRequest): Long {
         return memberSignInLogic.createConfig(
             MemberSignInConfig(
@@ -30,6 +32,7 @@ class MemberSignInConfigController(
     }
 
     @Put("/update")
+    @Permission("member:signin:update")
     suspend fun update(@Body request: UpdateMemberSignInConfigRequest) {
         memberSignInLogic.updateConfig(
             MemberSignInConfig(
@@ -43,16 +46,19 @@ class MemberSignInConfigController(
     }
 
     @Delete("/delete/{id}")
+    @Permission("member:signin:delete")
     suspend fun delete(@PathVariable id: Long) {
         memberSignInLogic.deleteConfig(id)
     }
 
     @Get("/get/{id}")
+    @Permission("member:signin:query")
     suspend fun get(@PathVariable id: Long): MemberSignInConfig? {
         return memberSignInLogic.getConfig(id)
     }
 
     @Get("/list")
+    @Permission("member:signin:list")
     suspend fun list(): List<MemberSignInConfig> {
         return memberSignInLogic.listConfigs()
     }

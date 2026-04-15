@@ -2,101 +2,36 @@ package controller.app.address
 
 import controller.app.address.dto.CreateAddressRequest
 import controller.app.address.dto.UpdateAddressRequest
-import model.Address
+import logic.MemberAddressLogic
 import neton.core.annotations.*
-import neton.core.http.NotFoundException
 import neton.core.interfaces.Identity
-import neton.database.dsl.*
-import table.AddressTable
 
-@Controller("/member/address")
-class AddressController {
+@Controller("/app/member/address")
+class AddressController(
+    private val addressLogic: MemberAddressLogic
+) {
 
     @Post("/create")
-    suspend fun create(identity: Identity, @Body request: CreateAddressRequest): Long {
-        val userId = identity.id.toLong()
-        if (request.defaultStatus == 1) {
-            clearDefaultAddress(userId)
-        }
-        val address = Address(
-            userId = userId,
-            name = request.name,
-            mobile = request.mobile,
-            areaCode = request.areaCode,
-            detailAddress = request.detailAddress,
-            defaultStatus = request.defaultStatus,
-        )
-        return AddressTable.insert(address).id
-    }
+    suspend fun create(identity: Identity, @Body request: CreateAddressRequest): Long =
+        addressLogic.create(identity.id.toLong(), request)
 
     @Put("/update")
-    suspend fun update(identity: Identity, @Body request: UpdateAddressRequest) {
-        val userId = identity.id.toLong()
-        val existing = AddressTable.get(request.id)
-            ?.takeIf { it.userId == userId }
-            ?: throw NotFoundException("Address not found: ${request.id}")
-        if (request.defaultStatus == 1) {
-            clearDefaultAddress(userId)
-        }
-        AddressTable.update(
-            existing.copy(
-                name = request.name,
-                mobile = request.mobile,
-                areaCode = request.areaCode,
-                detailAddress = request.detailAddress,
-                defaultStatus = request.defaultStatus,
-            )
-        )
-    }
+    suspend fun update(identity: Identity, @Body request: UpdateAddressRequest) =
+        addressLogic.update(identity.id.toLong(), request)
 
     @Delete("/delete/{id}")
-    suspend fun delete(identity: Identity, @PathVariable id: Long) {
-        val userId = identity.id.toLong()
-        val existing = AddressTable.get(id)
-            ?.takeIf { it.userId == userId }
-            ?: throw NotFoundException("Address not found: $id")
-        AddressTable.destroy(existing.id)
-    }
+    suspend fun delete(identity: Identity, @PathVariable id: Long) =
+        addressLogic.delete(identity.id.toLong(), id)
 
     @Get("/get/{id}")
-    suspend fun get(identity: Identity, @PathVariable id: Long): Address? {
-        val userId = identity.id.toLong()
-        return AddressTable.get(id)?.takeIf { it.userId == userId }
-    }
+    suspend fun get(identity: Identity, @PathVariable id: Long) =
+        addressLogic.getById(identity.id.toLong(), id)
 
     @Get("/list")
-    suspend fun list(identity: Identity): List<Address> {
-        val userId = identity.id.toLong()
-        return AddressTable.query {
-            where {
-                Address::userId eq userId
-            }
-            orderBy(Address::defaultStatus.desc(), Address::id.desc())
-        }.list()
-    }
+    suspend fun list(identity: Identity) =
+        addressLogic.listByUser(identity.id.toLong())
 
     @Get("/get-default")
-    suspend fun getDefault(identity: Identity): Address? {
-        val userId = identity.id.toLong()
-        return AddressTable.oneWhere {
-            and(
-                Address::userId eq userId,
-                Address::defaultStatus eq 1
-            )
-        }
-    }
-
-    private suspend fun clearDefaultAddress(userId: Long) {
-        val defaults = AddressTable.query {
-            where {
-                and(
-                    Address::userId eq userId,
-                    Address::defaultStatus eq 1
-                )
-            }
-        }.list()
-        for (addr in defaults) {
-            AddressTable.update(addr.copy(defaultStatus = 0))
-        }
-    }
+    suspend fun getDefault(identity: Identity) =
+        addressLogic.getDefault(identity.id.toLong())
 }
