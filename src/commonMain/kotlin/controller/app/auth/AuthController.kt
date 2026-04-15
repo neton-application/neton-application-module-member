@@ -6,7 +6,10 @@ import controller.app.auth.dto.MemberLoginResponse
 import controller.admin.auth.dto.SocialLoginRequest
 import controller.admin.auth.dto.SocialRedirectVO
 import kotlinx.serialization.Serializable
+import enums.SmsScene
 import neton.core.annotations.*
+import neton.core.http.BadRequestException
+import neton.validation.annotations.Min
 import neton.validation.annotations.NotBlank
 import neton.validation.annotations.Pattern
 import neton.validation.annotations.Size
@@ -29,12 +32,21 @@ data class MemberRefreshTokenRequest(
     val refreshToken: String
 )
 
+/** 匿名场景：登录、忘记密码 */
 @Serializable
 data class MemberSendSmsCodeRequest(
     @property:NotBlank
     @property:Pattern(regex = "^1\\d{10}$", message = "mobile format is invalid")
-    val mobile: String
+    val mobile: String,
+
+    @property:Min(1)
+    val scene: Int
 )
+
+/** 认证场景的合法 scene 值集合（修改手机、修改密码） */
+private val AUTHED_SCENES = setOf(SmsScene.MEMBER_UPDATE_MOBILE, SmsScene.MEMBER_UPDATE_PASSWORD)
+/** 匿名场景的合法 scene 值集合（登录、忘记密码） */
+private val ANON_SCENES = setOf(SmsScene.MEMBER_LOGIN, SmsScene.MEMBER_RESET_PASSWORD)
 
 @Serializable
 data class ValidateSmsCodeResponse(
@@ -71,11 +83,23 @@ class AuthController(
         return memberAuthLogic.refreshToken(request.refreshToken)
     }
 
+    /**
+     * 匿名发送验证码：仅允许登录（scene=1）和忘记密码（scene=4）场景。
+     * 修改手机/修改密码需要认证，走 /member/user/send-sms-code 接口。
+     */
     @Post("/send-sms-code")
     @AllowAnonymous
     @RateLimit(windowSeconds = 60, maxRequests = 5, scope = RateLimitScope.IP, message = "SMS code sending limit exceeded, please try again later")
     suspend fun sendSmsCode(@Body request: MemberSendSmsCodeRequest) {
-        memberAuthLogic.sendSmsCode(request.mobile)
+        val scene = try {
+            SmsScene.fromScene(request.scene)
+        } catch (_: IllegalArgumentException) {
+            throw BadRequestException("Invalid scene: ${request.scene}")
+        }
+        if (scene !in ANON_SCENES) {
+            throw BadRequestException("Scene ${request.scene} requires authentication, use /member/user/send-sms-code")
+        }
+        memberAuthLogic.sendSmsCode(request.mobile, scene)
     }
 
     @Post("/validate-sms-code")

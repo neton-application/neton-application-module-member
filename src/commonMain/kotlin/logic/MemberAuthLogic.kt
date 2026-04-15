@@ -1,5 +1,6 @@
 package logic
 
+import enums.SmsScene
 import model.Member
 import table.MemberTable
 import controller.app.auth.dto.MemberLoginRequest
@@ -160,15 +161,33 @@ class MemberAuthLogic(
         )
     }
 
-    suspend fun sendSmsCode(mobile: String) {
+    suspend fun sendSmsCode(mobile: String, scene: SmsScene) {
+        // Scene-specific pre-validation
+        when (scene) {
+            SmsScene.MEMBER_UPDATE_MOBILE -> {
+                // 修改手机：新手机号不能已被其他用户使用
+                val existing = MemberTable.oneWhere { Member::mobile eq mobile }
+                if (existing != null) {
+                    throw BadRequestException("Mobile number is already in use")
+                }
+            }
+            SmsScene.MEMBER_RESET_PASSWORD,
+            SmsScene.MEMBER_UPDATE_PASSWORD -> {
+                // 重置/修改密码：手机号必须已注册
+                MemberTable.oneWhere { Member::mobile eq mobile }
+                    ?: throw BadRequestException("Mobile number is not registered")
+            }
+            SmsScene.MEMBER_LOGIN -> Unit // 登录：无需前置校验，允许自动注册
+        }
+
         if (messageSendLogic != null) {
-            messageSendLogic.sendVerificationCode(mobile, "member_login")
+            messageSendLogic.sendVerificationCode(mobile, scene.templateCode)
         } else {
-            // Fallback: store code directly in Redis.
+            // Fallback: store code directly in Redis when SMS channel is not configured.
             // Random.Default maps to arc4random on Native (cryptographically secure).
             val code = Random.Default.nextInt(100000, 1000000).toString()
             redis?.set("$SMS_CODE_PREFIX$mobile", code, ttl = SMS_CODE_TTL_SECONDS.seconds)
-            log.info("member.sms.code.generated", mapOf("mobile" to maskMobile(mobile)))
+            log.info("member.sms.code.generated", mapOf("mobile" to maskMobile(mobile), "scene" to scene.name))
         }
     }
 
