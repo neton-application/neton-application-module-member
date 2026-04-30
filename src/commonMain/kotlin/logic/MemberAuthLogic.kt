@@ -307,15 +307,17 @@ class MemberAuthLogic(
     }
 
     private suspend fun issueImTokenSafely(uid: Long, device: LoginDeviceInfo?): IssueImTokenResponse {
+        // server `DeviceInfo` 字段全部 NOT NULL；客户端缺省时给 "unknown" 占位（spec TOKEN_API §3.2）。
+        val platform = device?.platform?.takeIf { it.isNotBlank() } ?: DEFAULT_PLATFORM
         val req = IssueImTokenRequest(
-            deviceId = device?.deviceId,
+            deviceId = device?.deviceId?.takeIf { it.isNotBlank() },
             deviceInfo = DeviceInfoInput(
-                appId = device?.platform ?: DEFAULT_PLATFORM,
-                deviceName = device?.deviceName ?: "",
-                deviceModel = device?.deviceModel ?: "",
-                osVersion = device?.osVersion ?: "",
-                appVersion = device?.appVersion ?: "",
-                ipAddress = device?.ipAddress ?: "",
+                appId = platform,
+                deviceName = device?.deviceName?.takeIf { it.isNotBlank() } ?: "unknown",
+                deviceModel = device?.deviceModel?.takeIf { it.isNotBlank() } ?: "unknown",
+                osVersion = device?.osVersion?.takeIf { it.isNotBlank() } ?: "unknown",
+                appVersion = device?.appVersion?.takeIf { it.isNotBlank() } ?: "unknown",
+                ipAddress = device?.ipAddress?.takeIf { it.isNotBlank() } ?: "0.0.0.0",
             ),
         )
         return privchatService.issueImToken(uid, req)
