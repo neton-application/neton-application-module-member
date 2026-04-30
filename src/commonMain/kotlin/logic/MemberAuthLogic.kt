@@ -48,11 +48,16 @@ class MemberAuthLogic(
     }
 
     /**
-     * 手动复核 E.164 —— neton-validation 在多模块 [bindIfAbsent] 模式下后注册的 validator 会被
-     * 静默忽略（framework 层问题）；此处兜底，保证不正确格式的手机号不会经过认证流程。
+     * 复核并归一手机号：仅去首尾空格，**不**自动 prepend `+`、**不**做国家级深度校验。
+     * 严格要求 E.164（`+` + 8-15 位数字）；非法 → BadRequest INVALID_PHONE_FORMAT。
+     *
+     * neton-validation 在多模块 `bindIfAbsent` 模式下后注册的 validator 会被静默忽略
+     * （framework 层 bug），此处兜底确保不正确格式的手机号无法进入认证流程。
      */
-    private fun requireE164(mobile: String) {
-        if (!E164.matches(mobile)) throw BadRequestException(E164_MESSAGE)
+    private fun requireE164(mobile: String): String {
+        val trimmed = mobile.trim()
+        if (!E164.matches(trimmed)) throw BadRequestException(E164_MESSAGE)
+        return trimmed
     }
 
     private fun maskMobile(mobile: String): String {
@@ -61,9 +66,9 @@ class MemberAuthLogic(
     }
 
     suspend fun login(request: MemberLoginRequest): MemberLoginResponse {
-        requireE164(request.mobile)
+        val mobile = requireE164(request.mobile)
         var member = MemberTable.oneWhere {
-            Member::mobile eq request.mobile
+            Member::mobile eq mobile
         } ?: throw BadRequestException("Invalid mobile or password")
 
         if (member.password == null) {
@@ -89,18 +94,18 @@ class MemberAuthLogic(
         MemberTable.update(member.copy(loginDate = now))
 
         val imToken = issueImTokenSafely(member.id, request.device)
-        log.info("member.login.success", mapOf("userId" to member.id, "mobile" to maskMobile(request.mobile)))
+        log.info("member.login.success", mapOf("userId" to member.id, "mobile" to maskMobile(mobile)))
 
         return buildResponse(member.id, imToken)
     }
 
     suspend fun smsLogin(request: MemberLoginRequest): MemberLoginResponse {
-        requireE164(request.mobile)
+        val mobile = requireE164(request.mobile)
         val smsCode = request.smsCode ?: throw BadRequestException("SMS code is required")
-        verifySmsCode(request.mobile, smsCode)
+        verifySmsCode(mobile, smsCode)
 
-        val member = MemberTable.oneWhere { Member::mobile eq request.mobile }
-            ?: registerFromPrivchat(request.mobile)
+        val member = MemberTable.oneWhere { Member::mobile eq mobile }
+            ?: registerFromPrivchat(mobile)
 
         if (member.status == 0) {
             throw BadRequestException("Account is disabled")
@@ -110,7 +115,7 @@ class MemberAuthLogic(
         MemberTable.update(member.copy(loginDate = now))
 
         val imToken = issueImTokenSafely(member.id, request.device)
-        log.info("member.sms.login.success", mapOf("userId" to member.id, "mobile" to maskMobile(request.mobile)))
+        log.info("member.sms.login.success", mapOf("userId" to member.id, "mobile" to maskMobile(mobile)))
 
         return buildResponse(member.id, imToken)
     }
@@ -160,8 +165,8 @@ class MemberAuthLogic(
         )
     }
 
-    suspend fun sendSmsCode(mobile: String, scene: SmsScene) {
-        requireE164(mobile)
+    suspend fun sendSmsCode(rawMobile: String, scene: SmsScene) {
+        val mobile = requireE164(rawMobile)
         // Scene-specific pre-validation
         when (scene) {
             SmsScene.MEMBER_UPDATE_MOBILE -> {
@@ -191,9 +196,9 @@ class MemberAuthLogic(
         }
     }
 
-    suspend fun validateSmsCode(mobile: String, code: String): Boolean {
+    suspend fun validateSmsCode(rawMobile: String, code: String): Boolean {
         return try {
-            verifySmsCode(mobile, code)
+            verifySmsCode(requireE164(rawMobile), code)
             true
         } catch (_: Exception) {
             false
