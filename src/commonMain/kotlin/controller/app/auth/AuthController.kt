@@ -29,7 +29,9 @@ data class ValidateSmsCodeRequest(
 data class MemberRefreshTokenRequest(
     @property:NotBlank
     @property:Size(min = 32, max = 4096)
-    val refreshToken: String
+    val refreshToken: String,
+    /** 必须与登录时签发 token 的 device 一致；不一致 → BadRequest（防跨设备 refresh）。 */
+    val deviceId: String? = null,
 )
 
 /** 匿名场景：登录、忘记密码 */
@@ -80,7 +82,7 @@ class AuthController(
     @Post("/refresh-token")
     @AllowAnonymous
     suspend fun refreshToken(@Body request: MemberRefreshTokenRequest): MemberLoginResponse {
-        return memberAuthLogic.refreshToken(request.refreshToken)
+        return memberAuthLogic.refreshToken(request.refreshToken, request.deviceId)
     }
 
     /**
@@ -121,6 +123,11 @@ class AuthController(
     @AllowAnonymous
     @RateLimit(windowSeconds = 300, maxRequests = 10, scope = RateLimitScope.IP, message = "Social login attempts exceeded, please try again later")
     suspend fun socialLogin(@Body request: SocialLoginRequest): MemberLoginResponse {
-        return memberAuthLogic.socialLogin(request.socialType, request.code, request.redirectUri ?: "")
+        return memberAuthLogic.socialLogin(
+            socialType = request.socialType,
+            code = request.code,
+            redirectUri = request.redirectUri ?: "",
+            device = request.device,
+        )
     }
 }

@@ -24,6 +24,7 @@ kotlin {
         commonMain {
             dependencies {
                 implementation("com.netonstream.app:module-system")
+                implementation("com.netonstream.privchat:client")
                 implementation("com.netonstream:neton-core")
                 implementation("com.netonstream:neton-routing")
                 implementation("com.netonstream:neton-security")

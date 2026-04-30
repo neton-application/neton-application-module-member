@@ -2,8 +2,10 @@
 -- module-member 全部建表语句 (PostgreSQL)
 -- =============================================
 
+-- member_users.id 不自增：spec UPSTREAM §5 — privchat fork 永久分叉项，
+-- caller-provided id = privchat-server 分配的 uid（spec ACCOUNT_IDENTITY §4.1）。
 CREATE TABLE IF NOT EXISTS member_users (
-    id BIGSERIAL PRIMARY KEY,
+    id BIGINT PRIMARY KEY,
     mobile VARCHAR(32),
     password VARCHAR(255),
     nickname VARCHAR(64) NOT NULL DEFAULT '',

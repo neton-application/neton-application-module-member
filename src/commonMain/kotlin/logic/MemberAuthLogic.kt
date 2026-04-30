@@ -1,5 +1,11 @@
 package logic
 
+import com.netonstream.privchat.application.module.privchat.client.PrivchatServiceClient
+import com.netonstream.privchat.application.module.privchat.client.dto.CreateUserRequest
+import com.netonstream.privchat.application.module.privchat.client.dto.DeviceInfoInput
+import com.netonstream.privchat.application.module.privchat.client.dto.IssueImTokenRequest
+import com.netonstream.privchat.application.module.privchat.client.dto.IssueImTokenResponse
+import controller.admin.auth.dto.LoginDeviceInfo
 import enums.SmsScene
 import model.Member
 import table.MemberTable
@@ -13,21 +19,19 @@ import neton.core.http.BadRequestException
 import neton.core.http.NotFoundException
 import neton.security.jwt.JwtAuthenticatorV1
 import neton.redis.RedisClient
-import logic.MessageSendLogic
-import logic.SocialUserLogic
 import neton.security.identity.AuthenticationException
 import neton.security.password.PasswordHasher
 import kotlin.random.Random
-import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.Clock
 
 class MemberAuthLogic(
     private val log: Logger,
+    private val privchatService: PrivchatServiceClient,
     private val jwt: JwtAuthenticatorV1? = null,
     private val redis: RedisClient? = null,
     private val messageSendLogic: MessageSendLogic? = null,
-    private val socialUserLogic: SocialUserLogic? = null
+    private val socialUserLogic: SocialUserLogic? = null,
 ) {
 
     companion object {
@@ -35,6 +39,8 @@ class MemberAuthLogic(
         private const val REFRESH_TOKEN_EXPIRES = 604800L  // 7 days
         private const val SMS_CODE_PREFIX = "sms:code:"
         private const val SMS_CODE_TTL_SECONDS = 300L  // 5 minutes
+        private const val DEFAULT_PLATFORM = "unknown"
+        private const val DEVICE_CLAIM = "device_id"
     }
 
     private fun maskMobile(mobile: String): String {
@@ -65,62 +71,33 @@ class MemberAuthLogic(
             throw BadRequestException("Account is disabled")
         }
 
-        val accessToken = generateAccessToken(member.id)
-        val refreshToken = generateRefreshToken(member.id)
-
-        // Update login info
         val now = Clock.System.now().toEpochMilliseconds()
         MemberTable.update(member.copy(loginDate = now))
 
+        val imToken = issueImTokenSafely(member.id, request.device)
         log.info("member.login.success", mapOf("userId" to member.id, "mobile" to maskMobile(request.mobile)))
 
-        return MemberLoginResponse(
-            userId = member.id,
-            accessToken = accessToken,
-            refreshToken = refreshToken,
-            expiresIn = ACCESS_TOKEN_EXPIRES
-        )
+        return buildResponse(member.id, imToken)
     }
 
     suspend fun smsLogin(request: MemberLoginRequest): MemberLoginResponse {
         val smsCode = request.smsCode ?: throw BadRequestException("SMS code is required")
-
-        // Verify SMS code from Redis
         verifySmsCode(request.mobile, smsCode)
 
-        var member = MemberTable.oneWhere {
-            Member::mobile eq request.mobile
-        }
-
-        // Auto-register if member does not exist
-        if (member == null) {
-            val newMember = Member(
-                mobile = request.mobile,
-                nickname = "Member_${request.mobile.takeLast(4)}"
-            )
-            member = MemberTable.insert(newMember)
-            log.info("member.sms.auto_register", mapOf("userId" to member.id, "mobile" to maskMobile(request.mobile)))
-        }
+        val member = MemberTable.oneWhere { Member::mobile eq request.mobile }
+            ?: registerFromPrivchat(request.mobile)
 
         if (member.status == 0) {
             throw BadRequestException("Account is disabled")
         }
 
-        val accessToken = generateAccessToken(member.id)
-        val refreshToken = generateRefreshToken(member.id)
-
-        // Update login info
         val now = Clock.System.now().toEpochMilliseconds()
         MemberTable.update(member.copy(loginDate = now))
 
+        val imToken = issueImTokenSafely(member.id, request.device)
         log.info("member.sms.login.success", mapOf("userId" to member.id, "mobile" to maskMobile(request.mobile)))
 
-        return MemberLoginResponse(
-            userId = member.id,
-            accessToken = accessToken,
-            refreshToken = refreshToken,
-            expiresIn = ACCESS_TOKEN_EXPIRES
-        )
+        return buildResponse(member.id, imToken)
     }
 
     suspend fun logout(userId: Long) {
@@ -129,7 +106,7 @@ class MemberAuthLogic(
         log.info("member.logout", mapOf("userId" to userId))
     }
 
-    suspend fun refreshToken(refreshToken: String): MemberLoginResponse {
+    suspend fun refreshToken(refreshToken: String, requestDeviceId: String?): MemberLoginResponse {
         val jwtInstance = jwt ?: throw BadRequestException("JWT service not available")
         val verifiedToken = try {
             jwtInstance.verifyToken(refreshToken)
@@ -138,6 +115,15 @@ class MemberAuthLogic(
         }
         if (verifiedToken.claimString("type") != "refresh" || verifiedToken.claimString("scope") != "member") {
             throw BadRequestException("Invalid or expired refresh token")
+        }
+        val claimDeviceId = verifiedToken.claimString(DEVICE_CLAIM)
+        if (claimDeviceId != null && requestDeviceId != null && claimDeviceId != requestDeviceId) {
+            // 跨设备复用 refresh token：拒
+            log.info(
+                "member.token.refresh.device_mismatch",
+                mapOf("claim" to claimDeviceId, "request" to requestDeviceId)
+            )
+            throw BadRequestException("Refresh token does not match the requesting device")
         }
         val userId = verifiedToken.identity.userId.value.toLong()
 
@@ -148,16 +134,14 @@ class MemberAuthLogic(
             throw BadRequestException("Account is disabled")
         }
 
-        val newAccessToken = generateAccessToken(member.id)
-        val newRefreshToken = generateRefreshToken(member.id)
-
         log.info("member.token.refreshed", mapOf("userId" to userId))
 
-        return MemberLoginResponse(
-            userId = userId,
-            accessToken = newAccessToken,
-            refreshToken = newRefreshToken,
-            expiresIn = ACCESS_TOKEN_EXPIRES
+        // refresh 路径不重发 IM token：server 端有内置 refresh RPC（spec TOKEN_API §3.3 v1.3），
+        // 客户端持有 im_refresh_token 直接走 server。此处仅续 member token，沿用旧 deviceId。
+        return buildResponse(
+            uid = member.id,
+            imToken = null,
+            deviceIdClaim = claimDeviceId ?: requestDeviceId,
         )
     }
 
@@ -208,7 +192,12 @@ class MemberAuthLogic(
         return social.getAuthRedirectUrl(socialType, redirectUri)
     }
 
-    suspend fun socialLogin(socialType: String, code: String, redirectUri: String): MemberLoginResponse {
+    suspend fun socialLogin(
+        socialType: String,
+        code: String,
+        redirectUri: String,
+        device: LoginDeviceInfo?,
+    ): MemberLoginResponse {
         val social = socialUserLogic
             ?: throw BadRequestException("Social login not configured")
 
@@ -216,14 +205,20 @@ class MemberAuthLogic(
 
         val member: Member
         if (socialUser.userId == 0L) {
-            // Auto-register a new member via social login
-            val newMember = Member(
-                nickname = socialUser.nickname ?: "Member_${socialUser.openId.take(6)}",
-                avatar = socialUser.avatar
+            // 走 server 取 uid，再写镜像（spec UPSTREAM §5：所有 fork 注册分支必须先 server 分配 uid）
+            val created = privchatService.createUser(
+                CreateUserRequest(
+                    username = socialUser.openId.takeIf { it.isNotEmpty() },
+                    displayName = socialUser.nickname,
+                    avatarUrl = socialUser.avatar,
+                )
             )
-            member = MemberTable.insert(newMember)
-
-            // Bind the social account to the new member
+            val newMember = Member(
+                id = created.userId,
+                nickname = socialUser.nickname ?: "Member_${socialUser.openId.take(6)}",
+                avatar = socialUser.avatar,
+            )
+            member = insertMemberWithProvidedId(newMember)
             social.bind(member.id, userType = 2, socialType, code, redirectUri)
             log.info("member.social.auto_register", mapOf("userId" to member.id, "socialType" to socialType))
         } else {
@@ -235,20 +230,12 @@ class MemberAuthLogic(
             throw BadRequestException("Account is disabled")
         }
 
-        val accessToken = generateAccessToken(member.id)
-        val refreshToken = generateRefreshToken(member.id)
-
         val now = Clock.System.now().toEpochMilliseconds()
         MemberTable.update(member.copy(loginDate = now))
 
+        val imToken = issueImTokenSafely(member.id, device)
         log.info("member.social.login.success", mapOf("userId" to member.id, "socialType" to socialType))
-
-        return MemberLoginResponse(
-            userId = member.id,
-            accessToken = accessToken,
-            refreshToken = refreshToken,
-            expiresIn = ACCESS_TOKEN_EXPIRES
-        )
+        return buildResponse(member.id, imToken)
     }
 
     // --- Private helpers ---
@@ -276,25 +263,92 @@ class MemberAuthLogic(
         }
     }
 
-    private fun generateAccessToken(userId: Long): String {
+    /**
+     * SMS 自动注册：先看 server 是否已有该手机号，命中则复用 uid，否则 createUser。
+     * 写本地镜像用 [insertMemberWithProvidedId]（caller-provided id）。
+     */
+    private suspend fun registerFromPrivchat(mobile: String): Member {
+        val remoteUser = privchatService.getUserByMobile(mobile)
+        val uid = remoteUser?.userId
+            ?: privchatService.createUser(CreateUserRequest(phone = mobile)).userId
+        val newMember = Member(
+            id = uid,
+            mobile = mobile,
+            nickname = "Member_${mobile.takeLast(4)}",
+        )
+        log.info(
+            "member.sms.auto_register",
+            mapOf("userId" to uid, "mobile" to maskMobile(mobile), "remoteHit" to (remoteUser != null))
+        )
+        return insertMemberWithProvidedId(newMember)
+    }
+
+    private suspend fun issueImTokenSafely(uid: Long, device: LoginDeviceInfo?): IssueImTokenResponse {
+        val req = IssueImTokenRequest(
+            deviceId = device?.deviceId,
+            deviceInfo = DeviceInfoInput(
+                appId = device?.platform ?: DEFAULT_PLATFORM,
+                deviceName = device?.deviceName ?: "",
+                deviceModel = device?.deviceModel ?: "",
+                osVersion = device?.osVersion ?: "",
+                appVersion = device?.appVersion ?: "",
+                ipAddress = device?.ipAddress ?: "",
+            ),
+        )
+        return privchatService.issueImToken(uid, req)
+    }
+
+    private fun buildResponse(
+        uid: Long,
+        imToken: IssueImTokenResponse?,
+        deviceIdClaim: String? = imToken?.deviceId,
+    ): MemberLoginResponse {
+        val accessToken = generateAccessToken(uid, deviceIdClaim)
+        val refreshToken = generateRefreshToken(uid, deviceIdClaim)
+        return MemberLoginResponse(
+            userId = uid,
+            accessToken = accessToken,
+            refreshToken = refreshToken,
+            expiresIn = ACCESS_TOKEN_EXPIRES,
+            imToken = imToken?.imToken,
+            imRefreshToken = imToken?.imRefreshToken?.takeIf { it.isNotEmpty() },
+            imRefreshExpiresIn = imToken?.imRefreshExpiresIn?.takeIf { it > 0 },
+            imDeviceId = imToken?.deviceId,
+            imExpiresIn = imToken?.expiresIn,
+            sessionVersion = imToken?.sessionVersion,
+            deviceCreated = imToken?.deviceCreated,
+        )
+    }
+
+    private fun generateAccessToken(userId: Long, deviceId: String?): String {
         val jwtInstance = jwt ?: throw IllegalStateException("JWT is not configured — set security.jwt.secretKey")
+        val extra = mutableMapOf<String, String>(
+            "type" to "access",
+            "scope" to "member",
+        )
+        deviceId?.let { extra[DEVICE_CLAIM] = it }
         return jwtInstance.createToken(
             userId = UserId(userId.toULong()),
             roles = emptySet(),
             permissions = emptySet(),
             expiresInSeconds = ACCESS_TOKEN_EXPIRES,
-            extraClaims = mapOf("type" to "access", "scope" to "member")
+            extraClaims = extra,
         )
     }
 
-    private fun generateRefreshToken(userId: Long): String {
+    private fun generateRefreshToken(userId: Long, deviceId: String?): String {
         val jwtInstance = jwt ?: throw IllegalStateException("JWT is not configured — set security.jwt.secretKey")
+        val extra = mutableMapOf<String, String>(
+            "type" to "refresh",
+            "scope" to "member",
+        )
+        deviceId?.let { extra[DEVICE_CLAIM] = it }
         return jwtInstance.createToken(
             userId = UserId(userId.toULong()),
             roles = emptySet(),
             permissions = emptySet(),
             expiresInSeconds = REFRESH_TOKEN_EXPIRES,
-            extraClaims = mapOf("type" to "refresh", "scope" to "member")
+            extraClaims = extra,
         )
     }
 }

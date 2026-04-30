@@ -1,5 +1,6 @@
 package init
 
+import com.netonstream.privchat.application.module.privchat.client.PrivchatServiceClient
 import infra.TableRegistryBuilder
 import neton.core.component.NetonContext
 import neton.core.module.ModuleInitializer
@@ -15,11 +16,12 @@ import logic.*
 object MemberModuleInitializer : ModuleInitializer {
 
     override val moduleId: String = "member"
-    override val dependsOn: List<String> = listOf("system")
+    override val dependsOn: List<String> = listOf("system", "privchat")
 
     override fun initialize(ctx: NetonContext) {
         val loggerFactory = ctx.get(LoggerFactory::class)
         val registry = ctx.get(TableRegistryBuilder::class)
+        val privchatService = ctx.get(PrivchatServiceClient::class)
 
         // 注册 Table
         registry.register(Member::class, MemberTable)
@@ -41,6 +43,7 @@ object MemberModuleInitializer : ModuleInitializer {
         // 绑定 Logic
         ctx.bind(MemberAuthLogic::class, MemberAuthLogic(
             log = loggerFactory.get("logic.member-auth"),
+            privchatService = privchatService,
             jwt = jwt,
             messageSendLogic = messageSendLogic,
             socialUserLogic = socialUserLogic
