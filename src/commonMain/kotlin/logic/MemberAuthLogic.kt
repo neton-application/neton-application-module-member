@@ -6,6 +6,8 @@ import com.netonstream.privchat.application.module.privchat.client.dto.DeviceInf
 import com.netonstream.privchat.application.module.privchat.client.dto.IssueImTokenRequest
 import com.netonstream.privchat.application.module.privchat.client.dto.IssueImTokenResponse
 import controller.admin.auth.dto.LoginDeviceInfo
+import controller.app.auth.dto.E164_MESSAGE
+import controller.app.auth.dto.E164_REGEX
 import enums.SmsScene
 import model.Member
 import table.MemberTable
@@ -41,13 +43,25 @@ class MemberAuthLogic(
         private const val SMS_CODE_TTL_SECONDS = 300L  // 5 minutes
         private const val DEFAULT_PLATFORM = "unknown"
         private const val DEVICE_CLAIM = "device_id"
+
+        private val E164 = Regex(E164_REGEX)
+    }
+
+    /**
+     * 手动复核 E.164 —— neton-validation 在多模块 [bindIfAbsent] 模式下后注册的 validator 会被
+     * 静默忽略（framework 层问题）；此处兜底，保证不正确格式的手机号不会经过认证流程。
+     */
+    private fun requireE164(mobile: String) {
+        if (!E164.matches(mobile)) throw BadRequestException(E164_MESSAGE)
     }
 
     private fun maskMobile(mobile: String): String {
-        return if (mobile.length < 7) "***" else "${mobile.take(3)}****${mobile.takeLast(4)}"
+        // E.164 形如 `+8615000000000`：保留 `+` 和国家码部分 + 末 4 位。
+        return if (mobile.length < 8) "***" else "${mobile.take(4)}****${mobile.takeLast(4)}"
     }
 
     suspend fun login(request: MemberLoginRequest): MemberLoginResponse {
+        requireE164(request.mobile)
         var member = MemberTable.oneWhere {
             Member::mobile eq request.mobile
         } ?: throw BadRequestException("Invalid mobile or password")
@@ -81,6 +95,7 @@ class MemberAuthLogic(
     }
 
     suspend fun smsLogin(request: MemberLoginRequest): MemberLoginResponse {
+        requireE164(request.mobile)
         val smsCode = request.smsCode ?: throw BadRequestException("SMS code is required")
         verifySmsCode(request.mobile, smsCode)
 
@@ -146,6 +161,7 @@ class MemberAuthLogic(
     }
 
     suspend fun sendSmsCode(mobile: String, scene: SmsScene) {
+        requireE164(mobile)
         // Scene-specific pre-validation
         when (scene) {
             SmsScene.MEMBER_UPDATE_MOBILE -> {
@@ -266,6 +282,8 @@ class MemberAuthLogic(
     /**
      * SMS 自动注册：先看 server 是否已有该手机号，命中则复用 uid，否则 createUser。
      * 写本地镜像用 [insertMemberWithProvidedId]（caller-provided id）。
+     *
+     * 入口已要求 E.164（`E164_REGEX`），这里直接透传给 server。
      */
     private suspend fun registerFromPrivchat(mobile: String): Member {
         val remoteUser = privchatService.getUserByMobile(mobile)

@@ -16,7 +16,7 @@ import neton.validation.annotations.Size
 @Serializable
 data class MemberLoginRequest(
     @property:NotBlank
-    @property:Pattern(regex = "^1\\d{10}$", message = "mobile format is invalid")
+    @property:Pattern(regex = E164_REGEX, message = E164_MESSAGE)
     val mobile: String,
 
     @property:Size(min = 8, max = 128)

@@ -1,5 +1,7 @@
 package controller.app.member.dto
 
+import controller.app.auth.dto.E164_MESSAGE
+import controller.app.auth.dto.E164_REGEX
 import kotlinx.serialization.Serializable
 import neton.validation.annotations.NotBlank
 import neton.validation.annotations.Pattern
@@ -18,7 +20,7 @@ data class UpdateMemberProfileRequest(
 @Serializable
 data class UpdateMemberMobileRequest(
     @property:NotBlank
-    @property:Pattern(regex = "^1\\d{10}$", message = "mobile format is invalid")
+    @property:Pattern(regex = E164_REGEX, message = E164_MESSAGE)
     val mobile: String,
 
     @property:NotBlank
@@ -40,7 +42,7 @@ data class UpdateMemberPasswordRequest(
 @Serializable
 data class ResetMemberPasswordRequest(
     @property:NotBlank
-    @property:Pattern(regex = "^1\\d{10}$", message = "mobile format is invalid")
+    @property:Pattern(regex = E164_REGEX, message = E164_MESSAGE)
     val mobile: String,
 
     @property:NotBlank

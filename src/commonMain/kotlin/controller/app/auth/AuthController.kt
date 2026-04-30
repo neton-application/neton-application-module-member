@@ -1,6 +1,8 @@
 package controller.app.auth
 
 import logic.MemberAuthLogic
+import controller.app.auth.dto.E164_MESSAGE
+import controller.app.auth.dto.E164_REGEX
 import controller.app.auth.dto.MemberLoginRequest
 import controller.app.auth.dto.MemberLoginResponse
 import controller.admin.auth.dto.SocialLoginRequest
@@ -17,7 +19,7 @@ import neton.validation.annotations.Size
 @Serializable
 data class ValidateSmsCodeRequest(
     @property:NotBlank
-    @property:Pattern(regex = "^1\\d{10}$", message = "mobile format is invalid")
+    @property:Pattern(regex = E164_REGEX, message = E164_MESSAGE)
     val mobile: String,
 
     @property:NotBlank
@@ -38,7 +40,7 @@ data class MemberRefreshTokenRequest(
 @Serializable
 data class MemberSendSmsCodeRequest(
     @property:NotBlank
-    @property:Pattern(regex = "^1\\d{10}$", message = "mobile format is invalid")
+    @property:Pattern(regex = E164_REGEX, message = E164_MESSAGE)
     val mobile: String,
 
     @property:Min(1)

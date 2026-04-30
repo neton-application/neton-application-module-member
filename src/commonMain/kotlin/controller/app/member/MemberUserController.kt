@@ -141,9 +141,9 @@ class MemberUserController(
                     ?: throw BadRequestException("No mobile bound to current account")
             }
             SmsScene.MEMBER_UPDATE_MOBILE -> {
-                // 修改手机：手机号为新号，由请求提供
-                request.mobile?.takeIf { it.matches(Regex("^1\\d{10}$")) }
-                    ?: throw BadRequestException("A valid new mobile number is required for this scene")
+                // 修改手机：手机号为新号，由请求提供（必须 E.164）
+                request.mobile?.takeIf { it.matches(Regex(controller.app.auth.dto.E164_REGEX)) }
+                    ?: throw BadRequestException(controller.app.auth.dto.E164_MESSAGE)
             }
             else -> throw BadRequestException("Unexpected scene: $scene")
         }
