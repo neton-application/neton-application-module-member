@@ -1,5 +1,8 @@
 package controller.app.member
 
+import com.netonstream.privchat.application.module.privchat.hook.HookBus
+import com.netonstream.privchat.application.module.privchat.hook.hooks.MemberMobileChangedHook
+import com.netonstream.privchat.application.module.privchat.hook.hooks.MemberPasswordChangedHook
 import controller.app.member.dto.ResetMemberPasswordRequest
 import controller.app.member.dto.UpdateMemberMobileRequest
 import controller.app.member.dto.UpdateMemberPasswordRequest
@@ -32,7 +35,8 @@ data class AuthedSendSmsCodeRequest(
 class MemberUserController(
     private val memberLogic: MemberLogic,
     private val memberAuthLogic: MemberAuthLogic,
-    private val redis: RedisClient? = null
+    private val redis: RedisClient? = null,
+    private val hookBus: HookBus? = null,
 ) {
 
     @Get("/get")
@@ -71,7 +75,10 @@ class MemberUserController(
 
         val member = memberLogic.get(userId)
             ?: throw NotFoundException("Member not found: $userId")
+        val oldMobile = member.mobile
         memberLogic.update(member.copy(mobile = mobile))
+        // 跨模块通知：手机号变更（spec HOOK_REGISTRY §3.1）
+        hookBus?.publish(MemberMobileChangedHook(uid = userId, oldMobile = oldMobile, newMobile = mobile))
     }
 
     @Put("/update-password")
@@ -90,6 +97,8 @@ class MemberUserController(
 
         // Hash new password and update
         memberLogic.update(member.copy(password = PasswordHasher.hash(request.newPassword)))
+        // 跨模块通知：密码变更，订阅者（如 :main）可调 server bumpSessions 让旧 IM token 失效（spec §4.2）
+        hookBus?.publish(MemberPasswordChangedHook(uid = userId))
     }
 
     @Put("/reset-password")
@@ -112,6 +121,7 @@ class MemberUserController(
 
         // Hash new password and update
         memberLogic.update(member.copy(password = PasswordHasher.hash(request.newPassword)))
+        hookBus?.publish(MemberPasswordChangedHook(uid = member.id))
     }
 
     /**
