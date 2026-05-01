@@ -323,6 +323,21 @@ class MemberAuthLogic(
         return privchatService.issueImToken(uid, req)
     }
 
+    /**
+     * 给指定 uid + 设备直接颁发完整的登录返回（spec QR_API §5）。
+     *
+     * 用途：扫码登录确认时，application 已经通过 mobile 的 member token 拿到 scanner_uid，
+     * 还需要给 **Web 端** 设备签发一套 access/refresh + IM token，再 push 回 Web 的 unauth
+     * 连接。普通登录路径不应使用此方法，而应走 [login] / [smsLogin] / [socialLogin]。
+     */
+    suspend fun issueLoginResponseForUid(
+        uid: Long,
+        device: LoginDeviceInfo?,
+    ): MemberLoginResponse {
+        val imToken = issueImTokenSafely(uid, device)
+        return buildResponse(uid, imToken)
+    }
+
     private fun buildResponse(
         uid: Long,
         imToken: IssueImTokenResponse?,
