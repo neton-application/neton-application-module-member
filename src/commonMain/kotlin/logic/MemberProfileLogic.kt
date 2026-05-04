@@ -10,6 +10,7 @@ import neton.core.http.HttpException
 import neton.core.http.NetonErrorCode
 import neton.core.http.NotFoundException
 import neton.logging.Logger
+import logic.AppFileLogic
 
 /**
  * Profile 字段变更的统一入口（spec MODULE_MEMBER_PROFILE_SPEC §4）。
@@ -22,6 +23,7 @@ import neton.logging.Logger
 class MemberProfileLogic(
     private val log: Logger,
     private val memberLogic: MemberLogic,
+    private val appFileLogic: AppFileLogic,
     private val hookBus: HookBus? = null,
 ) {
 
@@ -37,17 +39,41 @@ class MemberProfileLogic(
         return updated
     }
 
-    suspend fun updateAvatar(uid: Long, avatarUrl: String): Member {
-        val trimmed = avatarUrl.trim()
-        if (trimmed.isEmpty() || trimmed.length > 512) {
-            throw BadRequestException("INVALID_AVATAR_URL")
+    /**
+     * 头像更新（spec MODULE_MEMBER_PROFILE_SPEC §4.3）。
+     *
+     * 入参是 application 唯一上传入口（POST /app-api/infra/file/upload）返回的 fileId，
+     * 不是任意 URL。logic 层做完整的归属 / 业务类型 / status 校验后，把 file.url
+     * 写到 member.avatar。
+     *
+     * 替代旧方案"avatarUrl + URL 白名单前缀匹配" —— 数据库 lookup + 归属检查
+     * 比 URL 字符串前缀更可靠。
+     */
+    suspend fun updateAvatar(uid: Long, fileId: String): Member {
+        val trimmed = fileId.trim()
+        if (trimmed.isEmpty()) {
+            throw BadRequestException("INVALID_AVATAR_FILE_ID")
         }
-        // 避免外链：URL 必须以 application 自家 file 系统返回的 base 开头
-        if (!isApplicationOwnedAvatarUrl(trimmed)) {
-            throw BadRequestException("INVALID_AVATAR_URL")
+        val record = appFileLogic.getByFileId(trimmed)
+            ?: throw BadRequestException("AVATAR_FILE_NOT_FOUND: $trimmed")
+
+        if (record.status != 1) {
+            throw BadRequestException("AVATAR_FILE_INACTIVE: $trimmed")
         }
+        if (record.ownerUid != uid) {
+            // 不暴露归属信息——直接 not-found 语义，避免泄露 fileId 存在性
+            throw BadRequestException("AVATAR_FILE_NOT_FOUND: $trimmed")
+        }
+        if (record.businessType != "member_avatar") {
+            throw BadRequestException(
+                "INVALID_AVATAR_BUSINESS_TYPE: expected member_avatar, got ${record.businessType}",
+            )
+        }
+        val avatarUrl = record.url
+            ?: throw BadRequestException("AVATAR_FILE_NO_URL: $trimmed")
+
         val member = requireMember(uid)
-        val updated = member.copy(avatar = trimmed)
+        val updated = member.copy(avatar = avatarUrl)
         memberLogic.update(updated)
         publishProfileChanged(updated, setOf("avatar"))
         return updated
@@ -170,18 +196,6 @@ class MemberProfileLogic(
         )
     }
 
-    /**
-     * avatar URL 的 application 归属判断。
-     *
-     * 第一版只接受 application file 系统返回的 base URL 前缀，避免外链 / SSRF。
-     * 实际 base URL 来自 [APPLICATION_FILE_BASE_URLS]——后续 file 上传端点（PR-D）
-     * 将注入这个白名单；当前 list 为空 = 阶段性放行，由 size + length 兜底。
-     */
-    private fun isApplicationOwnedAvatarUrl(url: String): Boolean {
-        if (APPLICATION_FILE_BASE_URLS.isEmpty()) return true
-        return APPLICATION_FILE_BASE_URLS.any { url.startsWith(it) }
-    }
-
     data class UsernameUpdateResult(
         val member: Member,
         val nextChangeAvailableAt: Long,
@@ -205,12 +219,6 @@ class MemberProfileLogic(
         private val BIRTHDAY_REGEX = Regex("^\\d{4}-\\d{2}-\\d{2}$")
 
         private val GENDER_ALLOWED = setOf(0, 1, 2, 9)
-
-        /**
-         * application file 系统的 base URL 白名单。
-         * PR-B 阶段为空 → 跳过校验（avatar 上传链路在 PR-D 落地，到时把 base 注入进来）。
-         */
-        private val APPLICATION_FILE_BASE_URLS: List<String> = emptyList()
 
         private fun nowMillis(): Long = Clock.System.now().toEpochMilliseconds()
 

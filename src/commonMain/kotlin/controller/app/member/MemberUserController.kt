@@ -76,7 +76,7 @@ class MemberUserController(
         identity: Identity,
         @Body request: UpdateMemberAvatarRequest,
     ) {
-        memberProfileLogic.updateAvatar(identity.id.toLong(), request.avatarUrl)
+        memberProfileLogic.updateAvatar(identity.id.toLong(), request.fileId)
     }
 
     @Put("/update-username")

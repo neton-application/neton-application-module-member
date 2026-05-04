@@ -17,12 +17,13 @@ import logic.*
 object MemberModuleInitializer : ModuleInitializer {
 
     override val moduleId: String = "member"
-    override val dependsOn: List<String> = listOf("system", "privchat")
+    override val dependsOn: List<String> = listOf("system", "privchat", "infra")
 
     override fun initialize(ctx: NetonContext) {
         val loggerFactory = ctx.get(LoggerFactory::class)
         val registry = ctx.get(TableRegistryBuilder::class)
         val privchatService = ctx.get(PrivchatServiceClient::class)
+        val appFileLogic = ctx.get(logic.AppFileLogic::class)
 
         // 注册 Table
         registry.register(Member::class, MemberTable)
@@ -55,6 +56,7 @@ object MemberModuleInitializer : ModuleInitializer {
         ctx.bind(MemberProfileLogic::class, MemberProfileLogic(
             log = loggerFactory.get("logic.member-profile"),
             memberLogic = memberLogic,
+            appFileLogic = appFileLogic,
             hookBus = hookBus,
         ))
         ctx.bind(MemberLevelLogic::class, MemberLevelLogic(loggerFactory.get("logic.member-level")))
