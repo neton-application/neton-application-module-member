@@ -4,13 +4,20 @@ import com.netonstream.privchat.application.module.privchat.hook.HookBus
 import com.netonstream.privchat.application.module.privchat.hook.hooks.MemberMobileChangedHook
 import com.netonstream.privchat.application.module.privchat.hook.hooks.MemberPasswordChangedHook
 import controller.app.member.dto.ResetMemberPasswordRequest
+import controller.app.member.dto.UpdateMemberAvatarRequest
+import controller.app.member.dto.UpdateMemberBioRequest
+import controller.app.member.dto.UpdateMemberBirthdayRequest
+import controller.app.member.dto.UpdateMemberGenderRequest
 import controller.app.member.dto.UpdateMemberMobileRequest
+import controller.app.member.dto.UpdateMemberNicknameRequest
 import controller.app.member.dto.UpdateMemberPasswordRequest
-import controller.app.member.dto.UpdateMemberProfileRequest
+import controller.app.member.dto.UpdateMemberUsernameRequest
+import controller.app.member.dto.UpdateMemberUsernameResponse
 import enums.SmsScene
 import kotlinx.serialization.Serializable
 import logic.MemberAuthLogic
 import logic.MemberLogic
+import logic.MemberProfileLogic
 import model.Member
 import neton.core.annotations.*
 import neton.core.http.BadRequestException
@@ -31,10 +38,19 @@ data class AuthedSendSmsCodeRequest(
     val scene: Int
 )
 
+/**
+ * Member 用户面 profile 控制器（spec MODULE_MEMBER_PROFILE_SPEC §3 / §4）。
+ *
+ * 历史 `PUT /app/member/user/update`（混改 nickname + avatar）已下线，所有 profile
+ * 字段按操作单一职责拆开，每个端点 publish 一次 [com.netonstream.privchat
+ * .application.module.privchat.hook.hooks.MemberProfileChangedHook]，订阅者
+ * 决定是否同步到 server。
+ */
 @Controller("/app/member/user")
 class MemberUserController(
     private val memberLogic: MemberLogic,
     private val memberAuthLogic: MemberAuthLogic,
+    private val memberProfileLogic: MemberProfileLogic,
     private val redis: RedisClient? = null,
     private val hookBus: HookBus? = null,
 ) {
@@ -45,18 +61,63 @@ class MemberUserController(
         return memberLogic.get(userId)
     }
 
-    @Put("/update")
-    suspend fun update(identity: Identity, @Body request: UpdateMemberProfileRequest) {
-        val userId = identity.id.toLong()
-        val member = memberLogic.get(userId)
-            ?: throw NotFoundException("Member not found: $userId")
-        memberLogic.update(
-            member.copy(
-                nickname = request.nickname,
-                avatar = request.avatar,
-            )
+    // ──────────── profile 拆分端点（spec §4） ────────────
+
+    @Put("/update-nickname")
+    suspend fun updateNickname(
+        identity: Identity,
+        @Body request: UpdateMemberNicknameRequest,
+    ) {
+        memberProfileLogic.updateNickname(identity.id.toLong(), request.nickname)
+    }
+
+    @Put("/update-avatar")
+    suspend fun updateAvatar(
+        identity: Identity,
+        @Body request: UpdateMemberAvatarRequest,
+    ) {
+        memberProfileLogic.updateAvatar(identity.id.toLong(), request.avatarUrl)
+    }
+
+    @Put("/update-username")
+    @FreshAuth
+    suspend fun updateUsername(
+        identity: Identity,
+        @Body request: UpdateMemberUsernameRequest,
+    ): UpdateMemberUsernameResponse {
+        val result = memberProfileLogic.updateUsername(identity.id.toLong(), request.username)
+        return UpdateMemberUsernameResponse(
+            username = result.member.username
+                ?: error("updateUsername returned member without username; logic invariant broken"),
+            nextChangeAvailableAt = result.nextChangeAvailableAt,
         )
     }
+
+    @Put("/update-bio")
+    suspend fun updateBio(
+        identity: Identity,
+        @Body request: UpdateMemberBioRequest,
+    ) {
+        memberProfileLogic.updateBio(identity.id.toLong(), request.bio)
+    }
+
+    @Put("/update-gender")
+    suspend fun updateGender(
+        identity: Identity,
+        @Body request: UpdateMemberGenderRequest,
+    ) {
+        memberProfileLogic.updateGender(identity.id.toLong(), request.gender)
+    }
+
+    @Put("/update-birthday")
+    suspend fun updateBirthday(
+        identity: Identity,
+        @Body request: UpdateMemberBirthdayRequest,
+    ) {
+        memberProfileLogic.updateBirthday(identity.id.toLong(), request.birthday)
+    }
+
+    // ──────────── mobile / password / SMS（spec §4.8 已有，行为不变） ────────────
 
     @Put("/update-mobile")
     @FreshAuth

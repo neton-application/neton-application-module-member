@@ -1,6 +1,7 @@
 package init
 
 import com.netonstream.privchat.application.module.privchat.client.PrivchatServiceClient
+import com.netonstream.privchat.application.module.privchat.hook.HookBus
 import infra.TableRegistryBuilder
 import neton.core.component.NetonContext
 import neton.core.module.ModuleInitializer
@@ -39,6 +40,7 @@ object MemberModuleInitializer : ModuleInitializer {
         val redis = ctx.getOrNull(RedisClient::class)
         val messageSendLogic = ctx.getOrNull(MessageSendLogic::class)
         val socialUserLogic = ctx.getOrNull(SocialUserLogic::class)
+        val hookBus = ctx.getOrNull(HookBus::class)
 
         // 绑定 Logic
         ctx.bind(MemberAuthLogic::class, MemberAuthLogic(
@@ -48,7 +50,13 @@ object MemberModuleInitializer : ModuleInitializer {
             messageSendLogic = messageSendLogic,
             socialUserLogic = socialUserLogic
         ))
-        ctx.bind(MemberLogic::class, MemberLogic(loggerFactory.get("logic.member")))
+        val memberLogic = MemberLogic(loggerFactory.get("logic.member"))
+        ctx.bind(MemberLogic::class, memberLogic)
+        ctx.bind(MemberProfileLogic::class, MemberProfileLogic(
+            log = loggerFactory.get("logic.member-profile"),
+            memberLogic = memberLogic,
+            hookBus = hookBus,
+        ))
         ctx.bind(MemberLevelLogic::class, MemberLevelLogic(loggerFactory.get("logic.member-level")))
         ctx.bind(MemberPointLogic::class, MemberPointLogic(loggerFactory.get("logic.member-point")))
         ctx.bind(MemberSignInLogic::class, MemberSignInLogic(loggerFactory.get("logic.member-signin")))
