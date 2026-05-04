@@ -3,27 +3,25 @@ package controller.app.auth.dto
 import kotlinx.serialization.Serializable
 
 /**
- * 成员登录响应（spec UPSTREAM §5：privchat 注册/登录响应需多带 im_token / device_id；
- * spec TOKEN_API v1.3：im_refresh_token / im_refresh_expires_in 由 server 返回）。
+ * 成员登录响应（spec TOKEN_UNIFICATION_SPEC §8 LoginResponse）。
  *
- * 字段说明：
- * - `userId` / `accessToken` / `refreshToken` / `expiresIn`：application 侧 member token
- *    （access/refresh 的 JWT claim 都绑定 `device_id`，refresh 时校验一致）
- * - `imToken` / `imRefreshToken` / `imDeviceId` / `imExpiresIn` / `imRefreshExpiresIn`
- *    / `sessionVersion` / `deviceCreated`：privchat-server 签发的 IM session
- *    （refresh-member-token 路径不重发 IM，全部为 null —— 客户端走 server 内置 refresh RPC）
+ * 单一 unified token：
+ * - [accessToken] / [refreshToken]：server 签发的 RS256 unified token；HTTP + IM 通用
+ * - 客户端拿这一对 token 即可：访问 application 的 app-api 路由组，以及 IM RPC Authenticate 都用 [accessToken]
+ *
+ * 严禁字段：im_token / im_refresh_token / im_device_id（spec §8.2 终态）
  */
 @Serializable
 data class MemberLoginResponse(
     val userId: Long,
     val accessToken: String,
     val refreshToken: String,
+    val tokenType: String = "Bearer",
     val expiresIn: Long,
-    val imToken: String? = null,
-    val imRefreshToken: String? = null,
-    val imDeviceId: String? = null,
-    val imExpiresIn: Long? = null,
-    val imRefreshExpiresIn: Long? = null,
-    val sessionVersion: Long? = null,
-    val deviceCreated: Boolean? = null,
+    val refreshExpiresIn: Long,
+    val deviceId: String,
+    val sessionVersion: Long,
+    val deviceCreated: Boolean,
+    val scope: List<String>,
+    val issuer: String = "privchat-server",
 )

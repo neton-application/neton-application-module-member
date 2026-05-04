@@ -3,8 +3,8 @@ package logic
 import com.netonstream.privchat.application.module.privchat.client.PrivchatServiceClient
 import com.netonstream.privchat.application.module.privchat.client.dto.CreateUserRequest
 import com.netonstream.privchat.application.module.privchat.client.dto.DeviceInfoInput
-import com.netonstream.privchat.application.module.privchat.client.dto.IssueImTokenRequest
-import com.netonstream.privchat.application.module.privchat.client.dto.IssueImTokenResponse
+import com.netonstream.privchat.application.module.privchat.client.dto.IssueAuthTokenRequest
+import com.netonstream.privchat.application.module.privchat.client.dto.UnifiedLoginResponse
 import controller.admin.auth.dto.LoginDeviceInfo
 import controller.app.auth.dto.E164_MESSAGE
 import controller.app.auth.dto.E164_REGEX
@@ -15,13 +15,10 @@ import controller.app.auth.dto.MemberLoginRequest
 import controller.app.auth.dto.MemberLoginResponse
 import neton.database.dsl.*
 
-import neton.security.identity.UserId
 import neton.logging.Logger
 import neton.core.http.BadRequestException
 import neton.core.http.NotFoundException
-import neton.security.jwt.JwtAuthenticatorV1
 import neton.redis.RedisClient
-import neton.security.identity.AuthenticationException
 import neton.security.password.PasswordHasher
 import kotlin.random.Random
 import kotlin.time.Duration.Companion.seconds
@@ -30,19 +27,17 @@ import kotlin.time.Clock
 class MemberAuthLogic(
     private val log: Logger,
     private val privchatService: PrivchatServiceClient,
-    private val jwt: JwtAuthenticatorV1? = null,
     private val redis: RedisClient? = null,
     private val messageSendLogic: MessageSendLogic? = null,
     private val socialUserLogic: SocialUserLogic? = null,
 ) {
 
     companion object {
-        private const val ACCESS_TOKEN_EXPIRES = 7200L  // 2 hours
-        private const val REFRESH_TOKEN_EXPIRES = 604800L  // 7 days
         private const val SMS_CODE_PREFIX = "sms:code:"
         private const val SMS_CODE_TTL_SECONDS = 300L  // 5 minutes
         private const val DEFAULT_PLATFORM = "unknown"
-        private const val DEVICE_CLAIM = "device_id"
+        // logout 黑名单 TTL：与 server unified token 默认 access TTL 对齐（1h）
+        private const val LOGOUT_BLACKLIST_TTL_SECONDS = 3600L
 
         private val E164 = Regex(E164_REGEX)
     }
@@ -93,10 +88,8 @@ class MemberAuthLogic(
         val now = Clock.System.now().toEpochMilliseconds()
         MemberTable.update(member.copy(loginDate = now))
 
-        val imToken = issueImTokenSafely(member.id, request.device)
         log.info("member.login.success", mapOf("userId" to member.id, "mobile" to maskMobile(mobile)))
-
-        return buildResponse(member.id, imToken)
+        return buildResponse(member.id, request.device)
     }
 
     suspend fun smsLogin(request: MemberLoginRequest): MemberLoginResponse {
@@ -114,55 +107,26 @@ class MemberAuthLogic(
         val now = Clock.System.now().toEpochMilliseconds()
         MemberTable.update(member.copy(loginDate = now))
 
-        val imToken = issueImTokenSafely(member.id, request.device)
         log.info("member.sms.login.success", mapOf("userId" to member.id, "mobile" to maskMobile(mobile)))
-
-        return buildResponse(member.id, imToken)
+        return buildResponse(member.id, request.device)
     }
 
     suspend fun logout(userId: Long) {
         // Blacklist the user's tokens
-        redis?.set("auth:member:blacklist:$userId", "1", ttl = ACCESS_TOKEN_EXPIRES.seconds)
+        redis?.set("auth:member:blacklist:$userId", "1", ttl = LOGOUT_BLACKLIST_TTL_SECONDS.seconds)
         log.info("member.logout", mapOf("userId" to userId))
     }
 
+    /**
+     * 代理到 server `/api/service/auth/refresh`（spec §6.1）。token 验证、device_id 匹配、
+     * session_version 校验全部由 server 完成；application 不再持有自签 refresh token。
+     */
     suspend fun refreshToken(refreshToken: String, requestDeviceId: String?): MemberLoginResponse {
-        val jwtInstance = jwt ?: throw BadRequestException("JWT service not available")
-        val verifiedToken = try {
-            jwtInstance.verifyToken(refreshToken)
-        } catch (_: AuthenticationException) {
-            throw BadRequestException("Invalid or expired refresh token")
-        }
-        if (verifiedToken.claimString("type") != "refresh" || verifiedToken.claimString("scope") != "member") {
-            throw BadRequestException("Invalid or expired refresh token")
-        }
-        val claimDeviceId = verifiedToken.claimString(DEVICE_CLAIM)
-        if (claimDeviceId != null && requestDeviceId != null && claimDeviceId != requestDeviceId) {
-            // 跨设备复用 refresh token：拒
-            log.info(
-                "member.token.refresh.device_mismatch",
-                mapOf("claim" to claimDeviceId, "request" to requestDeviceId)
-            )
-            throw BadRequestException("Refresh token does not match the requesting device")
-        }
-        val userId = verifiedToken.identity.userId.value.toLong()
-
-        val member = MemberTable.get(userId)
-            ?: throw NotFoundException("Member not found")
-
-        if (member.status == 0) {
-            throw BadRequestException("Account is disabled")
-        }
-
-        log.info("member.token.refreshed", mapOf("userId" to userId))
-
-        // refresh 路径不重发 IM token：server 端有内置 refresh RPC（spec TOKEN_API §3.3 v1.3），
-        // 客户端持有 im_refresh_token 直接走 server。此处仅续 member token，沿用旧 deviceId。
-        return buildResponse(
-            uid = member.id,
-            imToken = null,
-            deviceIdClaim = claimDeviceId ?: requestDeviceId,
-        )
+        val deviceId = requestDeviceId?.takeIf { it.isNotBlank() }
+            ?: throw BadRequestException("device_id is required for refresh")
+        val unified = privchatService.refreshAuthToken(refreshToken = refreshToken, deviceId = deviceId)
+        log.info("member.token.refreshed", mapOf("userId" to unified.userId))
+        return unified.toMemberLoginResponse()
     }
 
     suspend fun sendSmsCode(rawMobile: String, scene: SmsScene) {
@@ -254,9 +218,8 @@ class MemberAuthLogic(
         val now = Clock.System.now().toEpochMilliseconds()
         MemberTable.update(member.copy(loginDate = now))
 
-        val imToken = issueImTokenSafely(member.id, device)
         log.info("member.social.login.success", mapOf("userId" to member.id, "socialType" to socialType))
-        return buildResponse(member.id, imToken)
+        return buildResponse(member.id, device)
     }
 
     // --- Private helpers ---
@@ -306,89 +269,53 @@ class MemberAuthLogic(
         return insertMemberWithProvidedId(newMember)
     }
 
-    private suspend fun issueImTokenSafely(uid: Long, device: LoginDeviceInfo?): IssueImTokenResponse {
+    /**
+     * 给指定 uid + 设备直接颁发完整的登录返回（spec QR_API §5）。
+     *
+     * 用途：扫码登录确认时，application 已经通过 mobile 的 member token 拿到 scanner_uid，
+     * 还需要给 **Web 端** 设备签发 token 推回 Web 的 unauth 连接。
+     */
+    suspend fun issueLoginResponseForUid(
+        uid: Long,
+        device: LoginDeviceInfo?,
+    ): MemberLoginResponse = buildResponse(uid, device)
+
+    /**
+     * 调 server `/api/service/auth/issue` 颁发 unified token，把 [UnifiedLoginResponse] 映射成
+     * 客户端可见的 [MemberLoginResponse]（spec §8）。
+     */
+    private suspend fun buildResponse(uid: Long, device: LoginDeviceInfo?): MemberLoginResponse {
         // server `DeviceInfo` 字段全部 NOT NULL；客户端缺省时给 "unknown" 占位（spec TOKEN_API §3.2）。
-        val platform = device?.platform?.takeIf { it.isNotBlank() } ?: DEFAULT_PLATFORM
-        val req = IssueImTokenRequest(
+        val req = IssueAuthTokenRequest(
+            userId = uid,
             deviceId = device?.deviceId?.takeIf { it.isNotBlank() },
             deviceInfo = DeviceInfoInput(
-                appId = platform,
+                appId = device?.platform?.takeIf { it.isNotBlank() } ?: DEFAULT_PLATFORM,
                 deviceName = device?.deviceName?.takeIf { it.isNotBlank() } ?: "unknown",
                 deviceModel = device?.deviceModel?.takeIf { it.isNotBlank() } ?: "unknown",
                 osVersion = device?.osVersion?.takeIf { it.isNotBlank() } ?: "unknown",
                 appVersion = device?.appVersion?.takeIf { it.isNotBlank() } ?: "unknown",
                 ipAddress = device?.ipAddress?.takeIf { it.isNotBlank() } ?: "0.0.0.0",
             ),
+            scope = listOf("user"),
+            audience = listOf("privchat-application", "privchat-server"),
+            businessSystemId = "privchat-application",
         )
-        return privchatService.issueImToken(uid, req)
+        return privchatService.issueAuthToken(req).toMemberLoginResponse()
     }
 
-    /**
-     * 给指定 uid + 设备直接颁发完整的登录返回（spec QR_API §5）。
-     *
-     * 用途：扫码登录确认时，application 已经通过 mobile 的 member token 拿到 scanner_uid，
-     * 还需要给 **Web 端** 设备签发一套 access/refresh + IM token，再 push 回 Web 的 unauth
-     * 连接。普通登录路径不应使用此方法，而应走 [login] / [smsLogin] / [socialLogin]。
-     */
-    suspend fun issueLoginResponseForUid(
-        uid: Long,
-        device: LoginDeviceInfo?,
-    ): MemberLoginResponse {
-        val imToken = issueImTokenSafely(uid, device)
-        return buildResponse(uid, imToken)
-    }
-
-    private fun buildResponse(
-        uid: Long,
-        imToken: IssueImTokenResponse?,
-        deviceIdClaim: String? = imToken?.deviceId,
-    ): MemberLoginResponse {
-        val accessToken = generateAccessToken(uid, deviceIdClaim)
-        val refreshToken = generateRefreshToken(uid, deviceIdClaim)
-        return MemberLoginResponse(
-            userId = uid,
+    private fun UnifiedLoginResponse.toMemberLoginResponse(): MemberLoginResponse =
+        MemberLoginResponse(
+            userId = userId,
             accessToken = accessToken,
             refreshToken = refreshToken,
-            expiresIn = ACCESS_TOKEN_EXPIRES,
-            imToken = imToken?.imToken,
-            imRefreshToken = imToken?.imRefreshToken?.takeIf { it.isNotEmpty() },
-            imRefreshExpiresIn = imToken?.imRefreshExpiresIn?.takeIf { it > 0 },
-            imDeviceId = imToken?.deviceId,
-            imExpiresIn = imToken?.expiresIn,
-            sessionVersion = imToken?.sessionVersion,
-            deviceCreated = imToken?.deviceCreated,
+            tokenType = tokenType,
+            expiresIn = expiresIn,
+            refreshExpiresIn = refreshExpiresIn,
+            deviceId = deviceId,
+            sessionVersion = sessionVersion,
+            deviceCreated = deviceCreated,
+            scope = scope,
+            issuer = issuer,
         )
-    }
-
-    private fun generateAccessToken(userId: Long, deviceId: String?): String {
-        val jwtInstance = jwt ?: throw IllegalStateException("JWT is not configured — set security.jwt.secretKey")
-        val extra = mutableMapOf<String, String>(
-            "type" to "access",
-            "scope" to "member",
-        )
-        deviceId?.let { extra[DEVICE_CLAIM] = it }
-        return jwtInstance.createToken(
-            userId = UserId(userId.toULong()),
-            roles = emptySet(),
-            permissions = emptySet(),
-            expiresInSeconds = ACCESS_TOKEN_EXPIRES,
-            extraClaims = extra,
-        )
-    }
-
-    private fun generateRefreshToken(userId: Long, deviceId: String?): String {
-        val jwtInstance = jwt ?: throw IllegalStateException("JWT is not configured — set security.jwt.secretKey")
-        val extra = mutableMapOf<String, String>(
-            "type" to "refresh",
-            "scope" to "member",
-        )
-        deviceId?.let { extra[DEVICE_CLAIM] = it }
-        return jwtInstance.createToken(
-            userId = UserId(userId.toULong()),
-            roles = emptySet(),
-            permissions = emptySet(),
-            expiresInSeconds = REFRESH_TOKEN_EXPIRES,
-            extraClaims = extra,
-        )
-    }
 }

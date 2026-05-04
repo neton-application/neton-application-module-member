@@ -59,6 +59,7 @@ class MemberUserController(
     }
 
     @Put("/update-mobile")
+    @FreshAuth
     suspend fun updateMobile(identity: Identity, @Body request: UpdateMemberMobileRequest) {
         val userId = identity.id.toLong()
         val mobile = request.mobile
@@ -82,6 +83,7 @@ class MemberUserController(
     }
 
     @Put("/update-password")
+    @FreshAuth
     suspend fun updatePassword(identity: Identity, @Body request: UpdateMemberPasswordRequest) {
         val userId = identity.id.toLong()
         val member = memberLogic.get(userId)

@@ -8,7 +8,6 @@ import neton.logging.LoggerFactory
 import neton.redis.RedisClient
 import logic.MessageSendLogic
 import logic.SocialUserLogic
-import neton.security.jwt.JwtAuthenticatorV1
 
 import model.*
 import table.*
@@ -37,7 +36,6 @@ object MemberModuleInitializer : ModuleInitializer {
         registry.register(Address::class, AddressTable)
 
         // 从 system 模块获取 Provider Logic（跨模块依赖）
-        val jwt = ctx.getOrNull(JwtAuthenticatorV1::class)
         val redis = ctx.getOrNull(RedisClient::class)
         val messageSendLogic = ctx.getOrNull(MessageSendLogic::class)
         val socialUserLogic = ctx.getOrNull(SocialUserLogic::class)
@@ -46,7 +44,6 @@ object MemberModuleInitializer : ModuleInitializer {
         ctx.bind(MemberAuthLogic::class, MemberAuthLogic(
             log = loggerFactory.get("logic.member-auth"),
             privchatService = privchatService,
-            jwt = jwt,
             redis = redis,
             messageSendLogic = messageSendLogic,
             socialUserLogic = socialUserLogic
