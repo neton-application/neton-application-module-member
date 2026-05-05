@@ -20,7 +20,7 @@ data class UpdateMemberNicknameRequest(
 
 @Serializable
 data class UpdateMemberAvatarRequest(
-    /** application 唯一用户态上传入口（POST /app-api/infra/file/upload）返回的 fileId。 */
+    /** application 唯一用户态上传入口（POST /app/infra/file/upload）返回的 fileId。 */
     @property:NotBlank
     @property:Size(min = 1, max = 64)
     val fileId: String,

@@ -42,7 +42,7 @@ class MemberProfileLogic(
     /**
      * 头像更新（spec MODULE_MEMBER_PROFILE_SPEC §4.3）。
      *
-     * 入参是 application 唯一上传入口（POST /app-api/infra/file/upload）返回的 fileId，
+     * 入参是 application 唯一上传入口（POST /app/infra/file/upload）返回的 fileId，
      * 不是任意 URL。logic 层做完整的归属 / 业务类型 / status 校验后，把 file.url
      * 写到 member.avatar。
      *
