@@ -22,7 +22,9 @@ class MemberLogic(
         mobile: String? = null,
         status: Int? = null,
         levelId: Long? = null,
-        groupId: Long? = null
+        groupId: Long? = null,
+        // 默认隐藏系统生成的陪玩机器人(is_robot=1)；admin 需查看时传 includeRobot=true。
+        includeRobot: Boolean = false
     ): PageResponse<Member> {
         val result = MemberTable.query {
             where {
@@ -31,7 +33,9 @@ class MemberLogic(
                     whenNotBlank(mobile) { Member::mobile like "%$it%" },
                     whenPresent(status) { Member::status eq it },
                     whenPresent(levelId) { Member::levelId eq it },
-                    whenPresent(groupId) { Member::groupId eq it }
+                    whenPresent(groupId) { Member::groupId eq it },
+                    // includeRobot=false → 过滤 is_robot=0；true → 传 null 跳过该条件。
+                    whenPresent(if (includeRobot) null else 0) { Member::isRobot eq it }
                 )
             }
             orderBy(Member::id.desc())

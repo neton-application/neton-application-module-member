@@ -34,6 +34,9 @@ data class Member(
     val bio: String? = null,
     /** ISO `YYYY-MM-DD` 字符串；跨端避免 DATE 时区歧义。 */
     val birthday: String? = null,
+    /** 1=系统生成的陪玩机器人账号，默认不进普通会员列表/积分/每日统计；与
+     *  game_club_member.is_auto_player(club-scoped) 正交。spec GAME_CLUB_ROOM_TEMPLATE_SPEC。 */
+    val isRobot: Int = 0,
     @SoftDelete
     val deleted: Int = 0,
     @CreatedAt

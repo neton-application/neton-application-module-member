@@ -62,6 +62,8 @@ class MemberUserController(
         @Query mobile: String? = null,
         @Query status: Int? = null,
         @Query levelId: Long? = null,
-        @Query groupId: Long? = null
-    ) = memberLogic.page(pageNo, pageSize, nickname, mobile, status, levelId, groupId)
+        @Query groupId: Long? = null,
+        // 默认隐藏陪玩机器人；admin 需要时 ?includeRobot=true。
+        @Query includeRobot: Boolean = false
+    ) = memberLogic.page(pageNo, pageSize, nickname, mobile, status, levelId, groupId, includeRobot)
 }
