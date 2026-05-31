@@ -4,7 +4,7 @@ import com.netonstream.privchat.application.module.privchat.client.PrivchatServi
 import com.netonstream.privchat.application.module.privchat.hook.HookBus
 import infra.TableRegistryBuilder
 import neton.core.component.NetonContext
-import neton.core.module.MigrationDialect
+import init.generated.MemberMigrationResources
 import neton.core.module.MigrationSource
 import neton.core.module.ModuleInitializer
 import neton.logging.LoggerFactory
@@ -21,14 +21,8 @@ object MemberModuleInitializer : ModuleInitializer {
     override val moduleId: String = "member"
     override val dependsOn: List<String> = listOf("system", "privchat", "infra")
 
-    /** 部署后路径,由 application/build.gradle.kts `copyModuleMigrations` task 填充. */
-    override fun migrations(): List<MigrationSource> = listOf(
-        MigrationSource(
-            moduleId = moduleId,
-            dialect = MigrationDialect.POSTGRESQL,
-            resourcePath = "migrations/$moduleId/postgresql",
-        )
-    )
+    /** SQL embed 到 binary,由 build.gradle.kts `generateMigrationResources` task 生成. */
+    override fun migrations(): List<MigrationSource> = MemberMigrationResources.sources
 
     override fun initialize(ctx: NetonContext) {
         val loggerFactory = ctx.get(LoggerFactory::class)
