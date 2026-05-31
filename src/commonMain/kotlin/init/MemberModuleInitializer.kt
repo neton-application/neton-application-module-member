@@ -4,6 +4,8 @@ import com.netonstream.privchat.application.module.privchat.client.PrivchatServi
 import com.netonstream.privchat.application.module.privchat.hook.HookBus
 import infra.TableRegistryBuilder
 import neton.core.component.NetonContext
+import neton.core.module.MigrationDialect
+import neton.core.module.MigrationSource
 import neton.core.module.ModuleInitializer
 import neton.logging.LoggerFactory
 import neton.redis.RedisClient
@@ -18,6 +20,15 @@ object MemberModuleInitializer : ModuleInitializer {
 
     override val moduleId: String = "member"
     override val dependsOn: List<String> = listOf("system", "privchat", "infra")
+
+    /** 部署后路径,由 application/build.gradle.kts `copyModuleMigrations` task 填充. */
+    override fun migrations(): List<MigrationSource> = listOf(
+        MigrationSource(
+            moduleId = moduleId,
+            dialect = MigrationDialect.POSTGRESQL,
+            resourcePath = "migrations/$moduleId/postgresql",
+        )
+    )
 
     override fun initialize(ctx: NetonContext) {
         val loggerFactory = ctx.get(LoggerFactory::class)
@@ -44,15 +55,22 @@ object MemberModuleInitializer : ModuleInitializer {
         val hookBus = ctx.getOrNull(HookBus::class)
 
         // 绑定 Logic
+        // R8.4a 顺序约束：MemberLogic / RequiredActionsLogic 必须先 bind，
+        // 因为 MemberAuthLogic 依赖 RequiredActionsLogic（计算 Post-login
+        // Required Actions 注入到 LoginResponse），RequiredActionsLogic
+        // 依赖 MemberLogic（从 uid 取 member 算 nickname pattern）。
+        val memberLogic = MemberLogic(loggerFactory.get("logic.member"))
+        ctx.bind(MemberLogic::class, memberLogic)
+        val requiredActionsLogic = RequiredActionsLogic(memberLogic)
+        ctx.bind(RequiredActionsLogic::class, requiredActionsLogic)
         ctx.bind(MemberAuthLogic::class, MemberAuthLogic(
             log = loggerFactory.get("logic.member-auth"),
             privchatService = privchatService,
+            requiredActionsLogic = requiredActionsLogic,
             redis = redis,
             messageSendLogic = messageSendLogic,
             socialUserLogic = socialUserLogic
         ))
-        val memberLogic = MemberLogic(loggerFactory.get("logic.member"))
-        ctx.bind(MemberLogic::class, memberLogic)
         ctx.bind(MemberProfileLogic::class, MemberProfileLogic(
             log = loggerFactory.get("logic.member-profile"),
             memberLogic = memberLogic,
