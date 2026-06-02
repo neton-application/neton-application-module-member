@@ -4,7 +4,7 @@ import logic.MemberPointLogic
 import neton.core.annotations.Controller
 import neton.core.annotations.Get
 
-@Controller("/app/member/experience-record")
+@Controller("/member/experience-record")
 class MemberExperienceRecordController(
     private val memberPointLogic: MemberPointLogic
 ) {

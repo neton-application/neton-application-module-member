@@ -6,7 +6,7 @@ import logic.MemberAddressLogic
 import neton.core.annotations.*
 import neton.core.interfaces.Identity
 
-@Controller("/app/member/address")
+@Controller("/member/address")
 class AddressController(
     private val addressLogic: MemberAddressLogic
 ) {

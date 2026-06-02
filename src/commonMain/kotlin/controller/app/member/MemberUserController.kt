@@ -46,7 +46,7 @@ data class AuthedSendSmsCodeRequest(
  * .application.module.privchat.hook.hooks.MemberProfileChangedHook]，订阅者
  * 决定是否同步到 server。
  */
-@Controller("/app/member/user")
+@Controller("/member/user")
 class MemberUserController(
     private val memberLogic: MemberLogic,
     private val memberAuthLogic: MemberAuthLogic,

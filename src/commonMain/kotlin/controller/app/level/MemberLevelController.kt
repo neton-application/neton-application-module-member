@@ -5,7 +5,7 @@ import model.MemberLevel
 import neton.core.annotations.Controller
 import neton.core.annotations.Get
 
-@Controller("/app/member/level")
+@Controller("/member/level")
 class MemberLevelController(
     private val memberLevelLogic: MemberLevelLogic
 ) {
