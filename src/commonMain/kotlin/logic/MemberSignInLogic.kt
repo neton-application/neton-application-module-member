@@ -16,6 +16,7 @@ import neton.logging.Logger
 import neton.core.http.BadRequestException
 import kotlin.time.Clock
 
+@neton.core.annotations.Logic(logger = "logic.member-signin")
 class MemberSignInLogic(
     private val log: Logger
 ) {

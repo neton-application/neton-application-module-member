@@ -4,9 +4,6 @@ import com.netonstream.privchat.application.module.privchat.client.PrivchatServi
 import com.netonstream.privchat.application.module.privchat.hook.HookBus
 import infra.TableRegistryBuilder
 import neton.core.component.NetonContext
-import init.generated.MemberMigrationResources
-import neton.core.module.MigrationSource
-import neton.core.module.ModuleInitializer
 import neton.logging.LoggerFactory
 import neton.redis.RedisClient
 import logic.MessageSendLogic
@@ -16,15 +13,12 @@ import model.*
 import table.*
 import logic.*
 
-object MemberModuleInitializer : ModuleInitializer {
-
-    override val moduleId: String = "member"
-    override val dependsOn: List<String> = listOf("system", "privchat", "infra")
-
-    /** SQL embed 到 binary,由 build.gradle.kts `generateMigrationResources` task 生成. */
-    override fun migrations(): List<MigrationSource> = MemberMigrationResources.sources
-
-    override fun initialize(ctx: NetonContext) {
+// MANIFEST-P3: 手写 runtime bootstrap。MemberLogic + 8 个纯 logic 已标 @Logic →
+// 生成的 MemberLogicInitializer 装配 (manifest 顺序: logics → 本 bootstrap → routes,
+// 所以这里 ctx.get(MemberLogic) 拿得到)。moduleId/dependsOn/migrations/路由 由 manifest。
+// 这里留: Table 注册 + 带 nullable 跨模块依赖 / inter-logic 依赖的 3 个复杂装配。
+object MemberRuntimeBootstrap {
+    fun initialize(ctx: NetonContext) {
         val loggerFactory = ctx.get(LoggerFactory::class)
         val registry = ctx.get(TableRegistryBuilder::class)
         val privchatService = ctx.get(PrivchatServiceClient::class)
@@ -41,20 +35,17 @@ object MemberModuleInitializer : ModuleInitializer {
         registry.register(MemberTag::class, MemberTagTable)
         registry.register(MemberConfig::class, MemberConfigTable)
         registry.register(Address::class, AddressTable)
+        registry.register(MemberNicknameAdjective::class, MemberNicknameAdjectiveTable)
+        registry.register(MemberNicknameNoun::class, MemberNicknameNounTable)
 
-        // 从 system 模块获取 Provider Logic（跨模块依赖）
+        // 跨模块依赖（nullable: 对应模块未装配时降级）
         val redis = ctx.getOrNull(RedisClient::class)
         val messageSendLogic = ctx.getOrNull(MessageSendLogic::class)
         val socialUserLogic = ctx.getOrNull(SocialUserLogic::class)
         val hookBus = ctx.getOrNull(HookBus::class)
 
-        // 绑定 Logic
-        // R8.4a 顺序约束：MemberLogic / RequiredActionsLogic 必须先 bind，
-        // 因为 MemberAuthLogic 依赖 RequiredActionsLogic（计算 Post-login
-        // Required Actions 注入到 LoginResponse），RequiredActionsLogic
-        // 依赖 MemberLogic（从 uid 取 member 算 nickname pattern）。
-        val memberLogic = MemberLogic(loggerFactory.get("logic.member"))
-        ctx.bind(MemberLogic::class, memberLogic)
+        // R8.4a 顺序: MemberLogic (@Logic 已 bind) → RequiredActionsLogic → MemberAuthLogic。
+        val memberLogic = ctx.get(MemberLogic::class)
         val requiredActionsLogic = RequiredActionsLogic(memberLogic)
         ctx.bind(RequiredActionsLogic::class, requiredActionsLogic)
         ctx.bind(MemberAuthLogic::class, MemberAuthLogic(
@@ -71,15 +62,5 @@ object MemberModuleInitializer : ModuleInitializer {
             appFileLogic = appFileLogic,
             hookBus = hookBus,
         ))
-        ctx.bind(MemberLevelLogic::class, MemberLevelLogic(loggerFactory.get("logic.member-level")))
-        ctx.bind(MemberPointLogic::class, MemberPointLogic(loggerFactory.get("logic.member-point")))
-        ctx.bind(MemberSignInLogic::class, MemberSignInLogic(loggerFactory.get("logic.member-signin")))
-        ctx.bind(MemberGroupLogic::class, MemberGroupLogic(loggerFactory.get("logic.member-group")))
-        ctx.bind(MemberTagLogic::class, MemberTagLogic(loggerFactory.get("logic.member-tag")))
-        ctx.bind(MemberAddressLogic::class, MemberAddressLogic(loggerFactory.get("logic.member-address")))
-        ctx.bind(MemberConfigLogic::class, MemberConfigLogic(loggerFactory.get("logic.member-config")))
-
-        // 注册 KSP 生成的路由
-        neton.module.member.generated.MemberRouteInitializer.initialize(ctx)
     }
 }

@@ -9,6 +9,7 @@ import neton.database.dsl.*
 
 import neton.logging.Logger
 
+@neton.core.annotations.Logic(logger = "logic.member-level")
 class MemberLevelLogic(
     private val log: Logger
 ) {

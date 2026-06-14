@@ -8,6 +8,7 @@ import com.netonstream.privchat.application.module.privchat.client.dto.UnifiedLo
 import controller.admin.auth.dto.LoginDeviceInfo
 import controller.app.auth.dto.E164_MESSAGE
 import controller.app.auth.dto.E164_REGEX
+import controller.app.auth.dto.RequiredAction
 import enums.SmsScene
 import model.Member
 import table.MemberTable
@@ -27,6 +28,7 @@ import kotlin.time.Clock
 class MemberAuthLogic(
     private val log: Logger,
     private val privchatService: PrivchatServiceClient,
+    private val requiredActionsLogic: RequiredActionsLogic,
     private val redis: RedisClient? = null,
     private val messageSendLogic: MessageSendLogic? = null,
     private val socialUserLogic: SocialUserLogic? = null,
@@ -126,7 +128,10 @@ class MemberAuthLogic(
             ?: throw BadRequestException("device_id is required for refresh")
         val unified = privchatService.refreshAuthToken(refreshToken = refreshToken, deviceId = deviceId)
         log.info("member.token.refreshed", mapOf("userId" to unified.userId))
-        return unified.toMemberLoginResponse()
+        // R8.4a：refresh 路径也带最新 required actions（用户可能在另一端完成
+        // 了 onboarding，本端 refresh 后应该立刻拿到空数组）。
+        val actions = requiredActionsLogic.computeForUid(unified.userId)
+        return unified.toMemberLoginResponse(actions)
     }
 
     suspend fun sendSmsCode(rawMobile: String, scene: SmsScene) {
@@ -301,10 +306,16 @@ class MemberAuthLogic(
             audience = listOf("privchat-application", "privchat-server"),
             businessSystemId = "privchat-application",
         )
-        return privchatService.issueAuthToken(req).toMemberLoginResponse()
+        val unified = privchatService.issueAuthToken(req)
+        // R8.4a：注入 Post-login Required Actions。issueAuthToken 不感知它们
+        // （IM core 不该知道平台业务）；application 这一层计算后随响应一起下发。
+        val actions = requiredActionsLogic.computeForUid(uid)
+        return unified.toMemberLoginResponse(actions)
     }
 
-    private fun UnifiedLoginResponse.toMemberLoginResponse(): MemberLoginResponse =
+    private fun UnifiedLoginResponse.toMemberLoginResponse(
+        requiredActions: List<RequiredAction>,
+    ): MemberLoginResponse =
         MemberLoginResponse(
             userId = userId,
             accessToken = accessToken,
@@ -317,5 +328,6 @@ class MemberAuthLogic(
             deviceCreated = deviceCreated,
             scope = scope,
             issuer = issuer,
+            requiredActions = requiredActions,
         )
 }

@@ -10,6 +10,7 @@ import neton.database.dsl.*
 
 import neton.logging.Logger
 
+@neton.core.annotations.Logic(logger = "logic.member-group")
 class MemberGroupLogic(
     private val log: Logger
 ) {

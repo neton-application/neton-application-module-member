@@ -1,0 +1,76 @@
+package logic
+
+import controller.app.auth.dto.RequiredAction
+import model.Member
+
+/**
+ * Post-login Required Actions 计算（spec PLATFORM_REQUIRED_ACTIONS_CONTRACT §5）。
+ *
+ * 两个调用点（保持唯一权威源 - 同一个 `computeForMember` 函数）：
+ * 1. [MemberAuthLogic.buildResponse] 拼 `MemberLoginResponse` 时
+ * 2. [controller.app.account.AccountController.listRequiredActions]
+ *
+ * v1 只判断一个 action（`complete_profile.nickname`），通过昵称默认 pattern
+ * 兜底；未来加 schema 字段 `member_users.profile_completed_at` 或独立
+ * `user_required_actions` 表时，只改 [isProfileIncomplete] / [computeForMember]
+ * 实现，**契约不变**（依旧返回 `List<RequiredAction>`）。
+ *
+ * 不在此类做：
+ * - HTTP 鉴权 / 路由（controller 负责）
+ * - DB 写入（v1 不写；v2 给独立 table）
+ * - UI 决定（client 自己 dispatch）
+ */
+class RequiredActionsLogic(
+    private val memberLogic: MemberLogic,
+) {
+
+    /** uid 入口：先取 member，未找到的兜底空数组（不抛错，不让登录失败）。 */
+    suspend fun computeForUid(uid: Long): List<RequiredAction> {
+        val member = memberLogic.get(uid) ?: return emptyList()
+        return computeForMember(member)
+    }
+
+    /** member 入口：纯函数。R8.4 single source of truth。 */
+    fun computeForMember(member: Member): List<RequiredAction> {
+        val actions = mutableListOf<RequiredAction>()
+        if (isProfileIncomplete(member)) {
+            actions += RequiredAction(
+                action = "complete_profile",
+                required = true,
+                title = "设置昵称",
+                titleKey = "requiredAction.completeProfile.nickname",
+                fields = listOf("nickname"),
+            )
+        }
+        // 未来扩展位 — 按需追加新 action 类型：
+        // if (needAcceptTerms(member)) actions += RequiredAction(action="accept_terms", title="同意新版协议", titleKey="requiredAction.acceptTerms", version=...)
+        // if (needBindMobile(member)) actions += RequiredAction(action="bind_mobile", title="绑定手机号", titleKey="requiredAction.bindMobile", reason=...)
+        // if (needCompleteKyc(member)) actions += RequiredAction(action="complete_kyc", title="完成身份认证", titleKey="requiredAction.completeKyc")
+        return actions
+    }
+
+    /**
+     * v1 实现：通过昵称匹配自动注册的默认 pattern 兜底判断。
+     *
+     * Server 端默认 nickname 生成位置：
+     * - [MemberAuthLogic.registerFromPrivchat]: `Member_${mobile.takeLast(4)}`
+     * - [MemberAuthLogic.socialLogin]: `Member_${socialUser.openId.take(6)}`（fallback）
+     *
+     * **Edge case（v1 接受）**：用户主动把 nickname 改成 `Member_1234`（恰好匹配 pattern）
+     * → 下次登录又被 gate。v2 加 `profile_completed_at` 后此 edge case 消失。
+     */
+    fun isProfileIncomplete(member: Member): Boolean {
+        val nickname = member.nickname.trim()
+        if (nickname.isEmpty()) return true
+        // SMS auto-register pattern: "Member_" + 4 digits
+        if (nickname.matches(SMS_DEFAULT_NICKNAME_REGEX)) return true
+        // Social auto-register pattern: "Member_" + 6 alphanumeric chars
+        if (nickname.matches(SOCIAL_DEFAULT_NICKNAME_REGEX)) return true
+        return false
+    }
+
+    companion object {
+        private val SMS_DEFAULT_NICKNAME_REGEX = Regex("^Member_\\d{4}$")
+        private val SOCIAL_DEFAULT_NICKNAME_REGEX = Regex("^Member_[A-Za-z0-9]{6}$")
+    }
+}

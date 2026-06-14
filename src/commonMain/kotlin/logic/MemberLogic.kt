@@ -11,6 +11,7 @@ import neton.database.dsl.*
 
 import neton.logging.Logger
 
+@neton.core.annotations.Logic(logger = "logic.member")
 class MemberLogic(
     private val log: Logger
 ) {
@@ -95,4 +96,58 @@ class MemberLogic(
 
         log.info("Updated member point: userId=$userId, point=$point, totalPoint=$newPoint")
     }
+
+    /** 扫所有 `is_robot=1` 且 nickname 为 null/空 的陪玩账号,用 [NicknameGenerator] 批量补昵称.
+     *
+     *  - generator 返 null (词库未初始化或单边空) → 该条计入 skippedPoolEmpty
+     *  - 单条 update 失败 → 计入 errors,继续下一条 (不抛, 保证大部分补成功)
+     *  - 已有非空 nickname 的 bot 不动 (admin 想重抽请先清空 nickname)
+     */
+    /**
+     * @param onlyEmpty true=只补 nickname='' 的(增量); false=重抽所有 is_robot=1(强制刷新).
+     */
+    suspend fun fillBotNicknames(generator: NicknameGenerator, onlyEmpty: Boolean = false): FillBotNicknamesResult {
+        // member_users.nickname 列定义 NOT NULL DEFAULT '' (V001).
+        // onlyEmpty=false: 重抽所有陪玩账号 (force regenerate, 旧丑名换新浪漫名).
+        // onlyEmpty=true : 只补 nickname='' (增量补漏).
+        val candidates = MemberTable.query {
+            where {
+                if (onlyEmpty) {
+                    and(
+                        Member::isRobot eq 1,
+                        Member::nickname eq "",
+                    )
+                } else {
+                    Member::isRobot eq 1
+                }
+            }
+        }.list()
+        var scanned = candidates.size
+        var filled = 0
+        var skippedPoolEmpty = 0
+        var errors = 0
+        for (m in candidates) {
+            val newNick = generator.next()
+            if (newNick == null) {
+                skippedPoolEmpty++
+                continue
+            }
+            try {
+                MemberTable.update(m.copy(nickname = newNick))
+                filled++
+            } catch (t: Throwable) {
+                errors++
+                log.info("fill_bot_nickname.failed id=${m.id} reason=${t.message ?: t::class.simpleName}")
+            }
+        }
+        log.info("fill_bot_nicknames.done scanned=$scanned filled=$filled skipped_pool_empty=$skippedPoolEmpty errors=$errors")
+        return FillBotNicknamesResult(scanned, filled, skippedPoolEmpty, errors)
+    }
 }
+
+data class FillBotNicknamesResult(
+    val scanned: Int,
+    val filled: Int,
+    val skippedPoolEmpty: Int,
+    val errors: Int,
+)

@@ -10,6 +10,7 @@ import neton.database.dsl.*
 
 import neton.logging.Logger
 
+@neton.core.annotations.Logic(logger = "logic.member-tag")
 class MemberTagLogic(
     private val log: Logger
 ) {
