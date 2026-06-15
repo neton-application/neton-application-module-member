@@ -11,8 +11,8 @@ rootProject.name = "module-member"
 // 框架
 includeBuild("../neton")
 
-// 主应用（提供 module-system）
+// 主应用（提供 module-system / module-infra）
 includeBuild("../privchat-application")
 
-// PrivChat IM 接入模块（提供 :client / :hook 接口）
-includeBuild("../neton-application-module-privchat")
+// MEMBER-IDENTITY-ADAPTER(M1): 不再 includeBuild privchat 模块 —— member 脱离 privchat 直接依赖。
+// privchat 模式由 module-privchat(反向 dependsOn member)在 M2 提供 adapter。

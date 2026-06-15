@@ -12,6 +12,8 @@ import neton.database.annotations.UpdatedAt
 data class Member(
     @Id
     val id: Long = 0,
+    /** 身份来源追溯(MEMBER-IDENTITY-ADAPTER):builtin=内置账号;privchat=privchat user_id(id 即 privchat user_id)。创建后不可由普通业务接口改。 */
+    val identityProvider: String = "builtin",
     val mobile: String? = null,
     val password: String? = null,
     val nickname: String,

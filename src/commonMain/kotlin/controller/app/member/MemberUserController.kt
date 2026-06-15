@@ -1,8 +1,5 @@
 package controller.app.member
 
-import com.netonstream.privchat.application.module.privchat.hook.HookBus
-import com.netonstream.privchat.application.module.privchat.hook.hooks.MemberMobileChangedHook
-import com.netonstream.privchat.application.module.privchat.hook.hooks.MemberPasswordChangedHook
 import port.MemberIdentityAdapter
 import port.MemberMobileChangedEvent
 import port.MemberPasswordChangedEvent
@@ -55,8 +52,7 @@ class MemberUserController(
     private val memberAuthLogic: MemberAuthLogic,
     private val memberProfileLogic: MemberProfileLogic,
     private val redis: RedisClient? = null,
-    private val hookBus: HookBus? = null,
-    // MEMBER-IDENTITY-ADAPTER C2: mobile/password 变更回调走 adapter(与 hookBus 暂并存,HookBus 在 C5 移除)。
+    // MEMBER-IDENTITY-ADAPTER: mobile/password 变更回调走 adapter(builtin=空;privchat adapter 同步)。
     private val identityAdapter: MemberIdentityAdapter? = null,
 ) {
 
@@ -144,8 +140,6 @@ class MemberUserController(
             ?: throw NotFoundException("Member not found: $userId")
         val oldMobile = member.mobile
         memberLogic.update(member.copy(mobile = mobile))
-        // 跨模块通知：手机号变更（spec HOOK_REGISTRY §3.1）
-        hookBus?.publish(MemberMobileChangedHook(uid = userId, oldMobile = oldMobile, newMobile = mobile))
         identityAdapter?.onMobileChanged(
             MemberMobileChangedEvent(memberId = userId, newMobile = mobile, oldMobile = oldMobile),
         )
@@ -168,8 +162,6 @@ class MemberUserController(
 
         // Hash new password and update
         memberLogic.update(member.copy(password = PasswordHasher.hash(request.newPassword)))
-        // 跨模块通知：密码变更，订阅者（如 :main）可调 server bumpSessions 让旧 IM token 失效（spec §4.2）
-        hookBus?.publish(MemberPasswordChangedHook(uid = userId))
         identityAdapter?.onPasswordChanged(MemberPasswordChangedEvent(memberId = userId))
     }
 
@@ -193,7 +185,6 @@ class MemberUserController(
 
         // Hash new password and update
         memberLogic.update(member.copy(password = PasswordHasher.hash(request.newPassword)))
-        hookBus?.publish(MemberPasswordChangedHook(uid = member.id))
         identityAdapter?.onPasswordChanged(MemberPasswordChangedEvent(memberId = member.id))
     }
 

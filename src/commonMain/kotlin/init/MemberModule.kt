@@ -6,5 +6,7 @@ import neton.core.annotations.Module
  *  @Logic: MemberLogic + 8 个 MemberXxxLogic/NicknameGenerator (纯单-Logger);
  *  runtime: init.MemberRuntimeBootstrap (Table 注册 + RequiredActions/MemberAuth/
  *  MemberProfile 复杂装配 + 跨模块 nullable 依赖); migrations + 路由由 KSP manifest。 */
-@Module(dependsOn = ["system", "privchat", "infra"])
+// MEMBER-IDENTITY-ADAPTER(M1): 去掉 privchat 依赖 —— member 只依赖 system/infra,
+// 身份后端经 MemberIdentityAdapter 抽象;privchat 模式由 module-privchat override adapter。
+@Module(dependsOn = ["system", "infra"])
 object MemberModule

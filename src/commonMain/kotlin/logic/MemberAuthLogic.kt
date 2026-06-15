@@ -1,10 +1,10 @@
 package logic
 
-import com.netonstream.privchat.application.module.privchat.client.PrivchatServiceClient
-import com.netonstream.privchat.application.module.privchat.client.dto.CreateUserRequest
-import com.netonstream.privchat.application.module.privchat.client.dto.DeviceInfoInput
-import com.netonstream.privchat.application.module.privchat.client.dto.IssueAuthTokenRequest
-import com.netonstream.privchat.application.module.privchat.client.dto.UnifiedLoginResponse
+import port.MemberIdentityAdapter
+import port.CreateMemberAccountCommand
+import port.IssueMemberTokenCommand
+import port.RefreshMemberTokenCommand
+import port.MemberTokenBundle
 import controller.admin.auth.dto.LoginDeviceInfo
 import controller.app.auth.dto.E164_MESSAGE
 import controller.app.auth.dto.E164_REGEX
@@ -27,7 +27,7 @@ import kotlin.time.Clock
 
 class MemberAuthLogic(
     private val log: Logger,
-    private val privchatService: PrivchatServiceClient,
+    private val identityAdapter: MemberIdentityAdapter,
     private val requiredActionsLogic: RequiredActionsLogic,
     private val redis: RedisClient? = null,
     private val messageSendLogic: MessageSendLogic? = null,
@@ -100,7 +100,7 @@ class MemberAuthLogic(
         verifySmsCode(mobile, smsCode)
 
         val member = MemberTable.oneWhere { Member::mobile eq mobile }
-            ?: registerFromPrivchat(mobile)
+            ?: registerViaAdapter(mobile)
 
         if (member.status == 0) {
             throw BadRequestException("Account is disabled")
@@ -126,12 +126,14 @@ class MemberAuthLogic(
     suspend fun refreshToken(refreshToken: String, requestDeviceId: String?): MemberLoginResponse {
         val deviceId = requestDeviceId?.takeIf { it.isNotBlank() }
             ?: throw BadRequestException("device_id is required for refresh")
-        val unified = privchatService.refreshAuthToken(refreshToken = refreshToken, deviceId = deviceId)
-        log.info("member.token.refreshed", mapOf("userId" to unified.userId))
+        val bundle = identityAdapter.refreshToken(
+            RefreshMemberTokenCommand(refreshToken = refreshToken, deviceId = deviceId),
+        )
+        log.info("member.token.refreshed", mapOf("userId" to bundle.userId))
         // R8.4a：refresh 路径也带最新 required actions（用户可能在另一端完成
         // 了 onboarding，本端 refresh 后应该立刻拿到空数组）。
-        val actions = requiredActionsLogic.computeForUid(unified.userId)
-        return unified.toMemberLoginResponse(actions)
+        val actions = requiredActionsLogic.computeForUid(bundle.userId)
+        return bundle.toMemberLoginResponse(actions)
     }
 
     suspend fun sendSmsCode(rawMobile: String, scene: SmsScene) {
@@ -196,15 +198,16 @@ class MemberAuthLogic(
         val member: Member
         if (socialUser.userId == 0L) {
             // 走 server 取 uid，再写镜像（spec UPSTREAM §5：所有 fork 注册分支必须先 server 分配 uid）
-            val created = privchatService.createUser(
-                CreateUserRequest(
+            val ref = identityAdapter.createOrBindAccount(
+                CreateMemberAccountCommand(
                     username = socialUser.openId.takeIf { it.isNotEmpty() },
                     displayName = socialUser.nickname,
                     avatarUrl = socialUser.avatar,
                 )
             )
             val newMember = Member(
-                id = created.userId,
+                id = ref.memberId,
+                identityProvider = ref.provider,
                 nickname = socialUser.nickname ?: "Member_${socialUser.openId.take(6)}",
                 avatar = socialUser.avatar,
             )
@@ -258,18 +261,17 @@ class MemberAuthLogic(
      *
      * 入口已要求 E.164（`E164_REGEX`），这里直接透传给 server。
      */
-    private suspend fun registerFromPrivchat(mobile: String): Member {
-        val remoteUser = privchatService.getUserByMobile(mobile)
-        val uid = remoteUser?.userId
-            ?: privchatService.createUser(CreateUserRequest(phone = mobile)).userId
+    private suspend fun registerViaAdapter(mobile: String): Member {
+        val ref = identityAdapter.createOrBindAccount(CreateMemberAccountCommand(mobile = mobile))
         val newMember = Member(
-            id = uid,
+            id = ref.memberId,
+            identityProvider = ref.provider,
             mobile = mobile,
             nickname = "Member_${mobile.takeLast(4)}",
         )
         log.info(
             "member.sms.auto_register",
-            mapOf("userId" to uid, "mobile" to maskMobile(mobile), "remoteHit" to (remoteUser != null))
+            mapOf("userId" to ref.memberId, "mobile" to maskMobile(mobile), "created" to ref.created)
         )
         return insertMemberWithProvidedId(newMember)
     }
@@ -290,30 +292,25 @@ class MemberAuthLogic(
      * 客户端可见的 [MemberLoginResponse]（spec §8）。
      */
     private suspend fun buildResponse(uid: Long, device: LoginDeviceInfo?): MemberLoginResponse {
-        // server `DeviceInfo` 字段全部 NOT NULL；客户端缺省时给 "unknown" 占位（spec TOKEN_API §3.2）。
-        val req = IssueAuthTokenRequest(
-            userId = uid,
-            deviceId = device?.deviceId?.takeIf { it.isNotBlank() },
-            deviceInfo = DeviceInfoInput(
-                appId = device?.platform?.takeIf { it.isNotBlank() } ?: DEFAULT_PLATFORM,
-                deviceName = device?.deviceName?.takeIf { it.isNotBlank() } ?: "unknown",
-                deviceModel = device?.deviceModel?.takeIf { it.isNotBlank() } ?: "unknown",
-                osVersion = device?.osVersion?.takeIf { it.isNotBlank() } ?: "unknown",
-                appVersion = device?.appVersion?.takeIf { it.isNotBlank() } ?: "unknown",
-                ipAddress = device?.ipAddress?.takeIf { it.isNotBlank() } ?: "0.0.0.0",
+        // device 信息透传给 adapter;具体后端(privchat)再映射成它的设备/令牌请求。
+        val bundle = identityAdapter.issueToken(
+            IssueMemberTokenCommand(
+                memberId = uid,
+                deviceId = device?.deviceId?.takeIf { it.isNotBlank() },
+                platform = device?.platform?.takeIf { it.isNotBlank() },
+                deviceName = device?.deviceName?.takeIf { it.isNotBlank() },
+                deviceModel = device?.deviceModel?.takeIf { it.isNotBlank() },
+                osVersion = device?.osVersion?.takeIf { it.isNotBlank() },
+                appVersion = device?.appVersion?.takeIf { it.isNotBlank() },
+                ipAddress = device?.ipAddress?.takeIf { it.isNotBlank() },
             ),
-            scope = listOf("user"),
-            audience = listOf("privchat-application", "privchat-server"),
-            businessSystemId = "privchat-application",
         )
-        val unified = privchatService.issueAuthToken(req)
-        // R8.4a：注入 Post-login Required Actions。issueAuthToken 不感知它们
-        // （IM core 不该知道平台业务）；application 这一层计算后随响应一起下发。
+        // R8.4a：注入 Post-login Required Actions。token 签发不感知它们;application 层计算后随响应下发。
         val actions = requiredActionsLogic.computeForUid(uid)
-        return unified.toMemberLoginResponse(actions)
+        return bundle.toMemberLoginResponse(actions)
     }
 
-    private fun UnifiedLoginResponse.toMemberLoginResponse(
+    private fun MemberTokenBundle.toMemberLoginResponse(
         requiredActions: List<RequiredAction>,
     ): MemberLoginResponse =
         MemberLoginResponse(

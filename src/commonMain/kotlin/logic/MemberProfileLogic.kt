@@ -1,8 +1,5 @@
 package logic
 
-import com.netonstream.privchat.application.module.privchat.hook.HookBus
-import com.netonstream.privchat.application.module.privchat.hook.hooks.MemberProfileChangedHook
-import com.netonstream.privchat.application.module.privchat.hook.hooks.MemberProfileSnapshot
 import kotlin.time.Clock
 import model.Member
 import neton.core.http.BadRequestException
@@ -26,9 +23,7 @@ class MemberProfileLogic(
     private val log: Logger,
     private val memberLogic: MemberLogic,
     private val appFileLogic: AppFileLogic,
-    private val hookBus: HookBus? = null,
-    // MEMBER-IDENTITY-ADAPTER C2: 资料变更回调走 adapter(builtin=空;privchat adapter 同步)。
-    // 与 hookBus 暂并存(adapter 未装配时为 null,no-op);HookBus 在 C5 移除。
+    // MEMBER-IDENTITY-ADAPTER: 资料变更回调走 adapter(builtin=空;privchat adapter 同步)。
     private val identityAdapter: MemberIdentityAdapter? = null,
 ) {
 
@@ -184,21 +179,6 @@ class MemberProfileLogic(
         memberLogic.get(uid) ?: throw NotFoundException("MEMBER_NOT_FOUND: $uid")
 
     private suspend fun publishProfileChanged(after: Member, changedFields: Set<String>) {
-        hookBus?.publish(
-            MemberProfileChangedHook(
-                uid = after.id,
-                changedFields = changedFields,
-                after = MemberProfileSnapshot(
-                    username = after.username,
-                    nickname = after.nickname,
-                    avatar = after.avatar,
-                    mobile = after.mobile,
-                    gender = after.gender,
-                    bio = after.bio,
-                    birthday = after.birthday,
-                ),
-            ),
-        )
         identityAdapter?.onProfileChanged(
             MemberProfileChangedEvent(memberId = after.id, changedFields = changedFields),
         )
