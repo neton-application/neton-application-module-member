@@ -11,6 +11,8 @@ import neton.core.http.NetonErrorCode
 import neton.core.http.NotFoundException
 import neton.logging.Logger
 import logic.AppFileLogic
+import port.MemberIdentityAdapter
+import port.MemberProfileChangedEvent
 
 /**
  * Profile 字段变更的统一入口（spec MODULE_MEMBER_PROFILE_SPEC §4）。
@@ -25,6 +27,9 @@ class MemberProfileLogic(
     private val memberLogic: MemberLogic,
     private val appFileLogic: AppFileLogic,
     private val hookBus: HookBus? = null,
+    // MEMBER-IDENTITY-ADAPTER C2: 资料变更回调走 adapter(builtin=空;privchat adapter 同步)。
+    // 与 hookBus 暂并存(adapter 未装配时为 null,no-op);HookBus 在 C5 移除。
+    private val identityAdapter: MemberIdentityAdapter? = null,
 ) {
 
     suspend fun updateNickname(uid: Long, nickname: String): Member {
@@ -193,6 +198,9 @@ class MemberProfileLogic(
                     birthday = after.birthday,
                 ),
             ),
+        )
+        identityAdapter?.onProfileChanged(
+            MemberProfileChangedEvent(memberId = after.id, changedFields = changedFields),
         )
     }
 
