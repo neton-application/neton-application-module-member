@@ -54,7 +54,7 @@ interface MemberIdentityAdapter {
     suspend fun onPasswordChanged(event: MemberPasswordChangedEvent) {}
 }
 ```
-- `MemberAccountRef(externalUserId: Long?, provider: String)` 等 model + 上述 3 个 event data class 一并定义在 member `port/`(事件作为回调入参,**不引入独立总线**)。
+- `MemberAccountRef(provider: String, memberId: Long, created: Boolean)` 等 model + 上述 3 个 event data class 一并定义在 member `port/`(事件作为回调入参,**不引入独立总线**)。**单 ID 模型**:`memberId` 始终是 `member_users.id`;privchat 模式下它**就是** privchat user_id(不存在外部 id 映射)。
 - 回调用默认空实现 → builtin 不需要写任何同步代码,privchat override 才同步。这取代 member 对 privchat `HookBus` 的依赖。
 
 ---
@@ -70,14 +70,24 @@ member 业务层(MemberAuthLogic / MemberProfileLogic)**只调 `MemberIdentityAd
 
 ---
 
-## 5. `member_users` 字段(不建新表)
+## 5. `member_users` 字段(单 ID 模型,只加 1 列)
 
-沿用现有表,加(或复用已有)两列表达外部身份:
+**`member_users.id` 永远是唯一主 ID**,其来源由 `identity_provider` 决定:
+| 模式 | `member_users.id` 来源 | 含义 |
+|---|---|---|
+| builtin | member 内置 ID 生成器 | Neton 内置账号 ID |
+| privchat | privchat-server 返回的 user_id | **privchat user_id 直接就是 member id** |
+
+只加一列(追溯来源):
 ```
-member_users.identity_provider   VARCHAR  -- 'builtin' | 'privchat'
-member_users.external_user_id    BIGINT NULL  -- privchat user_id;builtin 为 null/自身 id
+member_users.identity_provider VARCHAR NOT NULL DEFAULT 'builtin'  -- 'builtin' | 'privchat'
 ```
-> 若现有表已有可放 privchat user_id 的字段,直接沿用,不新增列。
+铁律:
+1. `member_users.id` 始终是 member 主 ID;privchat 模式下 `id == privchat user_id`。
+2. **不加 `external_user_id`、不建 `member_identity_binding`**(单 ID,无映射)。
+3. `identity_provider` v1 仅 `builtin`/`privchat`,创建后不可由普通业务接口修改。
+4. builtin→privchat 迁移走**专门 migration**(主 ID 体系可能需重映射),不允许改配置/手工 update 混切。
+> application 全层(game/payment/assistant/admin)只认一个 ID:`memberId == userId == privchatUserId`。
 
 ---
 

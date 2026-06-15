@@ -20,13 +20,14 @@ data class CreateMemberAccountCommand(
 )
 
 /**
- * 底层账号引用。
- * - builtin:`externalUserId = null`,member 用自己的本地 id 作主身份;
- * - privchat:`externalUserId = privchat user_id`。
+ * 账号引用 —— **单 ID 模型**:`memberId` 始终是 member_users 主 ID。
+ * - builtin:`memberId` = member 内置 ID 生成器产生;
+ * - privchat:`memberId` = privchat-server 返回的 user_id(**privchat user_id 直接就是 member id**,
+ *   不存在"外部 id 映射",故无 external_user_id)。
  */
 data class MemberAccountRef(
     val provider: String,
-    val externalUserId: Long? = null,
+    val memberId: Long,
     /** 本次是否新建(用于区分注册 vs 命中已有)。 */
     val created: Boolean = false,
 )
@@ -34,7 +35,6 @@ data class MemberAccountRef(
 /** 签发 token 入参。 */
 data class IssueMemberTokenCommand(
     val memberId: Long,
-    val externalUserId: Long? = null,
     val mobile: String? = null,
     val deviceId: String? = null,
     val platform: String? = null,

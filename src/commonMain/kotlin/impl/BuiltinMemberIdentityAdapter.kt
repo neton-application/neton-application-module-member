@@ -20,8 +20,8 @@ import port.RefreshMemberTokenCommand
 class BuiltinMemberIdentityAdapter : MemberIdentityAdapter {
 
     override suspend fun createOrBindAccount(command: CreateMemberAccountCommand): MemberAccountRef =
-        // 内置:不创建外部账号,member 本地 id 即主身份。
-        MemberAccountRef(provider = MemberIdentityProvider.BUILTIN, externalUserId = null, created = false)
+        // 内置:用 member 内置 ID 生成器产生 member_users.id。
+        TODO("Commit 4: builtin member id 生成 + 落库(单 ID 模型,member_users.id 即主身份)")
 
     override suspend fun issueToken(command: IssueMemberTokenCommand): MemberTokenBundle =
         TODO("Commit 2: 接入 member/application 本地 token 签发(沿用现有机制,不新造 token 体系)")
