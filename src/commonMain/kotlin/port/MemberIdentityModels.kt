@@ -69,6 +69,12 @@ data class MemberTokenBundle(
 )
 
 /** 资料变更事件(作为 adapter 回调入参,定义在 member,不引入独立总线)。 */
-data class MemberProfileChangedEvent(val memberId: Long, val changedFields: Set<String>)
+data class MemberProfileChangedEvent(
+    val memberId: Long,
+    val changedFields: Set<String>,
+    val username: String? = null,
+    val nickname: String? = null,
+    val avatar: String? = null,
+)
 data class MemberMobileChangedEvent(val memberId: Long, val newMobile: String, val oldMobile: String? = null)
 data class MemberPasswordChangedEvent(val memberId: Long)

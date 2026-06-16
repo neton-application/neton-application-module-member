@@ -180,7 +180,13 @@ class MemberProfileLogic(
 
     private suspend fun publishProfileChanged(after: Member, changedFields: Set<String>) {
         identityAdapter?.onProfileChanged(
-            MemberProfileChangedEvent(memberId = after.id, changedFields = changedFields),
+            MemberProfileChangedEvent(
+                memberId = after.id,
+                changedFields = changedFields,
+                username = after.username,
+                nickname = after.nickname,
+                avatar = after.avatar,
+            ),
         )
     }
 
