@@ -1,13 +1,16 @@
 package controller.admin.member
 
+import controller.admin.member.dto.FillBotNicknamesResponse
 import controller.admin.member.dto.UpdateMemberRequest
 import controller.admin.member.dto.UpdateMemberUserLevelRequest
 import controller.admin.member.dto.UpdateMemberUserPointRequest
 import logic.MemberLogic
+import logic.NicknameGenerator
 import model.Member
 import neton.core.annotations.Controller
 import neton.core.annotations.Get
 import neton.core.annotations.Permission
+import neton.core.annotations.Post
 import neton.core.annotations.Put
 import neton.core.annotations.Body
 import neton.core.annotations.PathVariable
@@ -15,7 +18,8 @@ import neton.core.annotations.Query
 
 @Controller("/member/user")
 class MemberUserController(
-    private val memberLogic: MemberLogic
+    private val memberLogic: MemberLogic,
+    private val nicknameGenerator: NicknameGenerator,
 ) {
 
     @Put("/update")
@@ -66,4 +70,27 @@ class MemberUserController(
         // 默认隐藏陪玩机器人；admin 需要时 ?includeRobot=true。
         @Query includeRobot: Boolean = false
     ) = memberLogic.page(pageNo, pageSize, nickname, mobile, status, levelId, groupId, includeRobot)
+
+    /** 扫所有 is_robot=1 且 nickname 为 null/空 的陪玩账号，用 [NicknameGenerator] 词库随机补昵称。
+     *
+     *  - 词库未初始化 / 任一边空 → generator 返 null → 该条 skipped (pool_empty)
+     *  - 已有非空 nickname 的 bot 不动 (admin 想重抽得删除原 nickname 再调)
+     *  - 每条单独尝试,某条失败不阻断其他 (errors 计数)
+     *
+     *  权限走 member:user:update (跟改昵称同一级别)。
+     */
+    @Post("/fill-bot-nicknames")
+    @Permission("member:user:update")
+    suspend fun fillBotNicknames(
+        /** true=只补 nickname='' 的 (增量); false (默认)=重抽所有 is_robot=1 (强制刷新). */
+        @Query onlyEmpty: Boolean = false,
+    ): FillBotNicknamesResponse {
+        val result = memberLogic.fillBotNicknames(nicknameGenerator, onlyEmpty = onlyEmpty)
+        return FillBotNicknamesResponse(
+            scanned = result.scanned,
+            filled = result.filled,
+            skippedPoolEmpty = result.skippedPoolEmpty,
+            errors = result.errors,
+        )
+    }
 }

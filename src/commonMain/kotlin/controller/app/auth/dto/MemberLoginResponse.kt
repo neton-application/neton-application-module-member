@@ -24,4 +24,14 @@ data class MemberLoginResponse(
     val deviceCreated: Boolean,
     val scope: List<String>,
     val issuer: String = "privchat-server",
+    /**
+     * R8.4a — Post-login Required Actions（spec PLATFORM_REQUIRED_ACTIONS_CONTRACT §3.1）。
+     *
+     * 空数组 = client 可直接进 workspace；非空 = client 必须进 RequiredActionFlow，
+     * 按顺序完成每个 action 后才能进入主功能。每完成一个 action 必须重新拉
+     * `GET /app/account/required-actions` 取权威新列表。
+     *
+     * 默认空数组保后向兼容：旧 client 不读字段视同空。
+     */
+    val requiredActions: List<RequiredAction> = emptyList(),
 )
