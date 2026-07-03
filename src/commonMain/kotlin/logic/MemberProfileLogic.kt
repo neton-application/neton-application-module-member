@@ -7,7 +7,7 @@ import neton.core.http.HttpException
 import neton.core.http.NetonErrorCode
 import neton.core.http.NotFoundException
 import neton.logging.Logger
-import logic.AppFileLogic
+import logic.FileUploadLogic
 import port.MemberIdentityAdapter
 import port.MemberProfileChangedEvent
 
@@ -22,7 +22,7 @@ import port.MemberProfileChangedEvent
 class MemberProfileLogic(
     private val log: Logger,
     private val memberLogic: MemberLogic,
-    private val appFileLogic: AppFileLogic,
+    private val appFileLogic: FileUploadLogic,
     // MEMBER-IDENTITY-ADAPTER: 资料变更回调走 adapter(builtin=空;privchat adapter 同步)。
     private val identityAdapter: MemberIdentityAdapter? = null,
 ) {
