@@ -21,7 +21,7 @@ object MemberRuntimeBootstrap {
     fun initialize(ctx: NetonContext) {
         val loggerFactory = ctx.get(LoggerFactory::class)
         val registry = ctx.get(TableRegistryBuilder::class)
-        val appFileLogic = ctx.get(logic.AppFileLogic::class)
+        val appFileLogic = ctx.get(logic.FileUploadLogic::class)
 
         // 注册 Table
         registry.register(Member::class, MemberTable)
