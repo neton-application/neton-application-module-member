@@ -52,11 +52,11 @@ class RequiredActionsLogic(
     /**
      * v1 实现：通过昵称匹配自动注册的默认 pattern 兜底判断。
      *
-     * Server 端默认 nickname 生成位置：
-     * - [MemberAuthLogic.registerFromPrivchat]: `Member_${mobile.takeLast(4)}`
-     * - [MemberAuthLogic.socialLogin]: `Member_${socialUser.openId.take(6)}`（fallback）
+     * 注册不再自动编造昵称（SMS/社交缺省一律空串），空昵称即未完成 → gate complete_profile。
+     * 下方 Member_ pattern 检测仅为**存量数据兼容**（历史自动生成的 `Member_xxxx`/`Member_abc123`
+     * 仍应被引导改名），新数据不会再产生该 pattern。
      *
-     * **Edge case（v1 接受）**：用户主动把 nickname 改成 `Member_1234`（恰好匹配 pattern）
+     * **Edge case（存量兼容期接受）**：用户主动把 nickname 改成 `Member_1234`（恰好匹配 pattern）
      * → 下次登录又被 gate。v2 加 `profile_completed_at` 后此 edge case 消失。
      */
     fun isProfileIncomplete(member: Member): Boolean {

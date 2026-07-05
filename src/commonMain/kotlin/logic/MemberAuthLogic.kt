@@ -208,7 +208,8 @@ class MemberAuthLogic(
             val newMember = Member(
                 id = ref.memberId,
                 identityProvider = ref.provider,
-                nickname = socialUser.nickname ?: "Member_${socialUser.openId.take(6)}",
+                // 社交昵称缺失时留空，不自动编造（空昵称由 complete_profile 引导补齐）。
+                nickname = socialUser.nickname ?: "",
                 avatar = socialUser.avatar,
             )
             member = insertMemberWithProvidedId(newMember)
@@ -263,12 +264,21 @@ class MemberAuthLogic(
      */
     private suspend fun registerViaAdapter(mobile: String): Member {
         val ref = identityAdapter.createOrBindAccount(CreateMemberAccountCommand(mobile = mobile))
+        // 昵称留空，不自动编造（RequiredActionsLogic 对空昵称强制 complete_profile 引导用户自己填）。
         val newMember = Member(
             id = ref.memberId,
             identityProvider = ref.provider,
             mobile = mobile,
-            nickname = "Member_${mobile.takeLast(4)}",
+            nickname = "",
         )
+        if (!ref.created) {
+            // 绑回了 server 既有账号但 platform 无 member 镜像：生产=手机号回收/换绑场景，
+            // 测试环境=platform 与 IM 库不同步（半重置）。可观测告警，便于排查“新注册继承旧会话”。
+            log.warn(
+                "member.sms.rebind_existing_im_account",
+                mapOf("userId" to ref.memberId, "mobile" to maskMobile(mobile))
+            )
+        }
         log.info(
             "member.sms.auto_register",
             mapOf("userId" to ref.memberId, "mobile" to maskMobile(mobile), "created" to ref.created)
