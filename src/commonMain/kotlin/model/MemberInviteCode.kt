@@ -1,9 +1,11 @@
 package model
 
+import kotlinx.serialization.Serializable
 import neton.database.annotations.Id
 import neton.database.annotations.Table
 
 /** 邀请码(MEMBER_INVITE_CODE §3)。owner 为空 = 平台码(只记录来源,不自动加好友)。 */
+@Serializable
 @Table("member_invite_codes")
 data class MemberInviteCode(
     @Id

@@ -1,9 +1,11 @@
 package model
 
+import kotlinx.serialization.Serializable
 import neton.database.annotations.Id
 import neton.database.annotations.Table
 
 /** 邀请记录(MEMBER_INVITE_CODE §3)。invitee UNIQUE:一个用户只绑定一次邀请来源。 */
+@Serializable
 @Table("member_invite_records")
 data class MemberInviteRecord(
     @Id

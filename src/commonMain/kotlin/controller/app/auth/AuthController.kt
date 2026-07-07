@@ -73,12 +73,14 @@ class AuthController(
 
     /** 通用注册入口(MEMBER_INVITE_CODE §5.1):v1 = USERNAME_PASSWORD;PHONE_SMS 走 sms-login。 */
     @Post("/register")
+    @AllowAnonymous
     suspend fun register(@Body request: MemberRegisterRequest): MemberLoginResponse {
         return memberAuthLogic.register(request)
     }
 
     /** 账号密码登录(USERNAME_PASSWORD 注册的用户)。 */
     @Post("/login-username")
+    @AllowAnonymous
     suspend fun loginUsername(@Body request: UsernameLoginRequest): MemberLoginResponse {
         return memberAuthLogic.usernameLogin(request.username, request.password, request.device)
     }
