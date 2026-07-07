@@ -64,5 +64,13 @@ object MemberRuntimeBootstrap {
             appFileLogic = appFileLogic,
             identityAdapter = identityAdapter,
         ))
+
+        // 签到：现金奖励发放端口（可空）。产品装配层（privchat @Module dependsOn=[] 先 init）
+        // bind MemberRewardPort 后签到可发现金；未装配（builtin）= null，纯积分行为。
+        ctx.bind(MemberSignInLogic::class, MemberSignInLogic(
+            log = loggerFactory.get("logic.member-signin"),
+            db = ctx.get(neton.database.api.DbContext::class),
+            rewardPort = ctx.getOrNull(port.MemberRewardPort::class),
+        ))
     }
 }

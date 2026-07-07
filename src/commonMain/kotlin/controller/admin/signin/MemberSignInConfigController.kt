@@ -26,6 +26,7 @@ class MemberSignInConfigController(
                 day = request.day,
                 point = request.point,
                 experience = request.experience,
+                cashAmount = request.cashAmount,
                 status = request.status
             )
         )
@@ -40,6 +41,7 @@ class MemberSignInConfigController(
                 day = request.day,
                 point = request.point,
                 experience = request.experience,
+                cashAmount = request.cashAmount,
                 status = request.status
             )
         )

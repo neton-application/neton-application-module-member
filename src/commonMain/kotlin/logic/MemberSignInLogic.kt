@@ -11,14 +11,23 @@ import table.MemberSignInRecordTable
 import table.MemberPointRecordTable
 import controller.admin.signin.dto.MemberSignInSummaryVO
 import neton.database.dsl.*
+import neton.database.api.DbContext
 
 import neton.logging.Logger
 import neton.core.http.BadRequestException
 import kotlin.time.Clock
 
-@neton.core.annotations.Logic(logger = "logic.member-signin")
+// 注意：不用 @Logic ——本类需要注入可选的 [port.MemberRewardPort]（KSP Logic 装配只支持
+// log/db 固定依赖），改为在 [init.MemberRuntimeBootstrap] 手动装配（与 MemberProfileLogic
+// 的 identityAdapter 同款 port 注入模式）。
 class MemberSignInLogic(
-    private val log: Logger
+    private val log: Logger,
+    private val db: DbContext,
+    /**
+     * 签到现金奖励发放端口（可空）：产品装配层（如 PrivChat）bind 后，
+     * `cashAmount > 0` 的签到在事务内经此发放现金；未装配时配置了现金即签到失败（防静默不发）。
+     */
+    private val rewardPort: port.MemberRewardPort? = null,
 ) {
 
     // --- Sign-in config CRUD (admin) ---
@@ -73,15 +82,25 @@ class MemberSignInLogic(
 
         val point = config?.point ?: 0
         val experience = config?.experience ?: 0
+        val cashAmount = config?.cashAmount ?: 0L
 
-        // Create sign-in record + award points + award experience in a single transaction
-        return MemberSignInRecordTable.transaction {
+        // 现金奖励已配置但产品未装配发放端口：直接失败（fail-fast），
+        // 不允许「签到成功但现金静默没发」。
+        if (cashAmount > 0 && rewardPort == null) {
+            throw IllegalStateException(
+                "Sign-in cash reward configured (day=$nextDay, cashAmount=$cashAmount) but no MemberRewardPort wired"
+            )
+        }
+
+        // Create sign-in record + award points/experience/cash in a single transaction
+        return db.transaction {
             // Create sign-in record
             val insertedRecord = MemberSignInRecordTable.insert(MemberSignInRecord(
                 userId = userId,
                 day = nextDay,
                 point = point,
-                experience = experience
+                experience = experience,
+                cashAmount = cashAmount
             ))
 
             // Award points if applicable
@@ -112,7 +131,19 @@ class MemberSignInLogic(
                 }
             }
 
-            log.info("Member signed in: userId=$userId, day=$nextDay, point=$point, experience=$experience")
+            // Award cash if applicable（同事务；实现方异常 → 整体回滚，签到可重试）
+            if (cashAmount > 0) {
+                checkNotNull(rewardPort).onSignInCashReward(
+                    port.SignInCashRewardEvent(
+                        userId = userId,
+                        recordId = insertedRecord.id,
+                        day = nextDay,
+                        cashAmount = cashAmount,
+                    )
+                )
+            }
+
+            log.info("Member signed in: userId=$userId, day=$nextDay, point=$point, experience=$experience, cashAmount=$cashAmount")
 
             insertedRecord
         }

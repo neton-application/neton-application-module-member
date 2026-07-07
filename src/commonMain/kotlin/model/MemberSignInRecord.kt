@@ -14,6 +14,8 @@ data class MemberSignInRecord(
     val day: Int,
     val point: Int,
     val experience: Int = 0,
+    /** 当次签到发放的现金奖励快照（分；0=未发现金）。对账锚点：ledger biz_id = 本记录 id。 */
+    val cashAmount: Long = 0,
     @CreatedAt
     val createdAt: String? = null
 )
