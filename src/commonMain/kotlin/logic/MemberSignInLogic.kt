@@ -39,7 +39,13 @@ class MemberSignInLogic(
     }
 
     suspend fun updateConfig(config: MemberSignInConfig) {
-        MemberSignInConfigTable.update(config)
+        val existing = MemberSignInConfigTable.get(config.id)
+            ?: throw BadRequestException("Sign-in config not found: id=${config.id}")
+        // 全列 update：请求构造的 config 不带时间戳，必须保留原行 created_at，
+        // 否则写 null 触发 23502 非空约束（与 MenuLogic.update 同款修复）。
+        MemberSignInConfigTable.update(
+            config.copy(createdAt = existing.createdAt, updatedAt = existing.updatedAt)
+        )
         log.info("Updated sign-in config: id=${config.id}")
     }
 
