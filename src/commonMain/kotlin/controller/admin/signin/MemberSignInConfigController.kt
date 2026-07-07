@@ -59,7 +59,9 @@ class MemberSignInConfigController(
         return memberSignInLogic.getConfig(id)
     }
 
-    @Get("/list")
+    // 路由跨 group 全局去重：app 侧已有 GET /member/sign-in/config/list（客户端在用），
+    // admin 侧必须换 pattern（先例：admin 牌谱 /full-replay）。
+    @Get("/list-all")
     @Permission("member:signin:list")
     suspend fun list(): List<MemberSignInConfig> {
         return memberSignInLogic.listConfigs()

@@ -10,7 +10,8 @@ class MemberSignInRecordController(
     private val memberSignInLogic: MemberSignInLogic
 ) {
 
-    @Get("/page")
+    // 同 config/list-all：app 侧已占 GET /member/sign-in/record/page，admin 换 pattern。
+    @Get("/page-all")
     @Permission("member:signin:page")
     suspend fun page(
         pageNo: Int = 1,
