@@ -19,12 +19,12 @@ internal suspend fun insertMemberWithProvidedId(member: Member): Member {
     val now = Clock.System.now().toEpochMilliseconds()
     val sql = """
         INSERT INTO member_users (
-            id, mobile, password, nickname, avatar, status,
+            id, mobile, password, username, username_updated_at, nickname, avatar, status,
             level_id, experience, point, group_id,
             register_ip, login_ip, login_date, deleted,
             created_at, updated_at
         ) VALUES (
-            :id, :mobile, :password, :nickname, :avatar, :status,
+            :id, :mobile, :password, :username, :usernameUpdatedAt, :nickname, :avatar, :status,
             :levelId, :experience, :point, :groupId,
             :registerIp, :loginIp, :loginDate, :deleted,
             :createdAt, :updatedAt
@@ -34,6 +34,8 @@ internal suspend fun insertMemberWithProvidedId(member: Member): Member {
         .bind("id", member.id)
         .bind("mobile", member.mobile)
         .bind("password", member.password)
+        .bind("username", member.username)
+        .bind("usernameUpdatedAt", member.usernameUpdatedAt)
         .bind("nickname", member.nickname)
         .bind("avatar", member.avatar)
         .bind("status", member.status)
