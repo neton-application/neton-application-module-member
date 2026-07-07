@@ -1,6 +1,8 @@
 package controller.app.auth
 
 import logic.MemberAuthLogic
+import controller.app.auth.dto.MemberRegisterRequest
+import controller.app.auth.dto.UsernameLoginRequest
 import controller.app.auth.dto.E164_MESSAGE
 import controller.app.auth.dto.E164_REGEX
 import controller.app.auth.dto.MemberLoginRequest
@@ -67,6 +69,18 @@ class AuthController(
     @RateLimit(windowSeconds = 300, maxRequests = 10, scope = RateLimitScope.IP, message = "Login attempts exceeded, please try again later")
     suspend fun login(@Body request: MemberLoginRequest): MemberLoginResponse {
         return memberAuthLogic.login(request)
+    }
+
+    /** 通用注册入口(MEMBER_INVITE_CODE §5.1):v1 = USERNAME_PASSWORD;PHONE_SMS 走 sms-login。 */
+    @Post("/register")
+    suspend fun register(@Body request: MemberRegisterRequest): MemberLoginResponse {
+        return memberAuthLogic.register(request)
+    }
+
+    /** 账号密码登录(USERNAME_PASSWORD 注册的用户)。 */
+    @Post("/login-username")
+    suspend fun loginUsername(@Body request: UsernameLoginRequest): MemberLoginResponse {
+        return memberAuthLogic.usernameLogin(request.username, request.password, request.device)
     }
 
     @Post("/sms-login")

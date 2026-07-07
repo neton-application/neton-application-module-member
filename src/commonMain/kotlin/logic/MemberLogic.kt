@@ -8,12 +8,14 @@ import table.MemberTable
 import table.MemberLevelRecordTable
 import table.MemberPointRecordTable
 import neton.database.dsl.*
+import neton.database.api.DbContext
 
 import neton.logging.Logger
 
 @neton.core.annotations.Logic(logger = "logic.member")
 class MemberLogic(
-    private val log: Logger
+    private val log: Logger,
+    private val db: DbContext,
 ) {
 
     suspend fun page(
@@ -59,7 +61,7 @@ class MemberLogic(
             ?: throw IllegalArgumentException("Member not found: $userId")
 
         // Update member + create level record in a single transaction
-        MemberTable.transaction {
+        db.transaction {
             MemberTable.update(member.copy(levelId = levelId))
 
             MemberLevelRecordTable.insert(MemberLevelRecord(
@@ -81,7 +83,7 @@ class MemberLogic(
         val newPoint = member.point + point
 
         // Update member point + create point record in a single transaction
-        MemberTable.transaction {
+        db.transaction {
             MemberTable.update(member.copy(point = newPoint))
 
             MemberPointRecordTable.insert(MemberPointRecord(

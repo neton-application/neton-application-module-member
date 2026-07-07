@@ -1,6 +1,5 @@
 package init
 
-import infra.TableRegistryBuilder
 import neton.core.component.NetonContext
 import neton.logging.LoggerFactory
 import neton.redis.RedisClient
@@ -9,8 +8,6 @@ import logic.SocialUserLogic
 import port.MemberIdentityAdapter
 import impl.BuiltinMemberIdentityAdapter
 
-import model.*
-import table.*
 import logic.*
 
 // MANIFEST-P3 + MEMBER-IDENTITY-ADAPTER(M1): 手写 runtime bootstrap。
@@ -20,22 +17,7 @@ import logic.*
 object MemberRuntimeBootstrap {
     fun initialize(ctx: NetonContext) {
         val loggerFactory = ctx.get(LoggerFactory::class)
-        val registry = ctx.get(TableRegistryBuilder::class)
         val appFileLogic = ctx.get(logic.FileUploadLogic::class)
-
-        // 注册 Table
-        registry.register(Member::class, MemberTable)
-        registry.register(MemberLevel::class, MemberLevelTable)
-        registry.register(MemberLevelRecord::class, MemberLevelRecordTable)
-        registry.register(MemberPointRecord::class, MemberPointRecordTable)
-        registry.register(MemberSignInConfig::class, MemberSignInConfigTable)
-        registry.register(MemberSignInRecord::class, MemberSignInRecordTable)
-        registry.register(MemberGroup::class, MemberGroupTable)
-        registry.register(MemberTag::class, MemberTagTable)
-        registry.register(MemberConfig::class, MemberConfigTable)
-        registry.register(Address::class, AddressTable)
-        registry.register(MemberNicknameAdjective::class, MemberNicknameAdjectiveTable)
-        registry.register(MemberNicknameNoun::class, MemberNicknameNounTable)
 
         // 身份后端 adapter:默认内置;privchat 模式下 module-privchat 已 bind override → bindIfAbsent 保留它。
         ctx.bindIfAbsent(MemberIdentityAdapter::class, BuiltinMemberIdentityAdapter())
@@ -50,13 +32,23 @@ object MemberRuntimeBootstrap {
         val memberLogic = ctx.get(MemberLogic::class)
         val requiredActionsLogic = RequiredActionsLogic(memberLogic)
         ctx.bind(RequiredActionsLogic::class, requiredActionsLogic)
+        // 邀请码(MEMBER_INVITE_CODE):自动加好友端口可空(builtin=仅记录来源);
+        // 注册策略由产品装配层 bind(privchat 从 conf 读),未装配用默认(仅 PHONE_SMS)。
+        val inviteLogic = MemberInviteLogic(
+            log = loggerFactory.get("logic.member-invite"),
+            db = ctx.get(neton.database.api.DbContext::class),
+            invitePort = ctx.getOrNull(port.MemberInvitePort::class),
+        )
+        ctx.bind(MemberInviteLogic::class, inviteLogic)
         ctx.bind(MemberAuthLogic::class, MemberAuthLogic(
             log = loggerFactory.get("logic.member-auth"),
             identityAdapter = identityAdapter,
             requiredActionsLogic = requiredActionsLogic,
             redis = redis,
             messageSendLogic = messageSendLogic,
-            socialUserLogic = socialUserLogic
+            socialUserLogic = socialUserLogic,
+            inviteLogic = inviteLogic,
+            authPolicy = ctx.getOrNull(port.MemberAuthPolicy::class) ?: port.MemberAuthPolicy(),
         ))
         ctx.bind(MemberProfileLogic::class, MemberProfileLogic(
             log = loggerFactory.get("logic.member-profile"),

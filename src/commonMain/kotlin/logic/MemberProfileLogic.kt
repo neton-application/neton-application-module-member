@@ -196,11 +196,11 @@ class MemberProfileLogic(
     )
 
     companion object {
-        /** ^[a-z][a-z0-9_]{2,31}$ */
-        private val USERNAME_REGEX = Regex("^[a-z][a-z0-9_]{2,31}$")
+        /** ^[a-z][a-z0-9_]{2,31}$（internal：USERNAME_PASSWORD 注册复用同一真源规则） */
+        internal val USERNAME_REGEX = Regex("^[a-z][a-z0-9_]{2,31}$")
 
         /** spec MODULE_MEMBER_PROFILE_SPEC §4.4 — 保留词最小集，可后续在配置中扩展。 */
-        private val USERNAME_RESERVED: Set<String> = setOf(
+        internal val USERNAME_RESERVED: Set<String> = setOf(
             "admin", "administrator", "system", "support", "help",
             "root", "owner", "moderator", "mod", "bot",
             "null", "undefined", "none", "test", "user",

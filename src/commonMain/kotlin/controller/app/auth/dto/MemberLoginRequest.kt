@@ -26,4 +26,10 @@ data class MemberLoginRequest(
     val smsCode: String? = null,
 
     val device: LoginDeviceInfo? = null,
+
+    /** 邀请码(MEMBER_INVITE_CODE):仅新注册时生效;老用户登录携带则忽略。 */
+    val inviteCode: String? = null,
+
+    /** 注册时直填昵称(填了跳过 complete_profile 引导)。 */
+    val nickname: String? = null,
 )

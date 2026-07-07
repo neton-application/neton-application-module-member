@@ -32,6 +32,8 @@ class MemberAuthLogic(
     private val redis: RedisClient? = null,
     private val messageSendLogic: MessageSendLogic? = null,
     private val socialUserLogic: SocialUserLogic? = null,
+    private val inviteLogic: MemberInviteLogic? = null,
+    private val authPolicy: port.MemberAuthPolicy = port.MemberAuthPolicy(),
 ) {
 
     companion object {
@@ -100,7 +102,12 @@ class MemberAuthLogic(
         verifySmsCode(mobile, smsCode)
 
         val member = MemberTable.oneWhere { Member::mobile eq mobile }
-            ?: registerViaAdapter(mobile)
+            ?: registerNewUser(
+                mode = port.MemberAuthPolicy.MODE_PHONE_SMS,
+                identifierMasked = maskMobile(mobile),
+                inviteCode = request.inviteCode,
+                buildMember = { registerViaAdapter(mobile, nickname = request.nickname) },
+            )
 
         if (member.status == 0) {
             throw BadRequestException("Account is disabled")
@@ -262,14 +269,110 @@ class MemberAuthLogic(
      *
      * 入口已要求 E.164（`E164_REGEX`），这里直接透传给 server。
      */
-    private suspend fun registerViaAdapter(mobile: String): Member {
+    /**
+     * 统一注册收敛(MEMBER_INVITE_CODE §5.3):所有注册方式共用——
+     * 邀请码校验(悲观,失败=注册失败)→ 建用户 → 同事务计数+record → 提交后自动加好友。
+     * `inviteCodeRequired` 只在这里生效(评审 B:存量用户登录不受影响)。
+     */
+    private suspend fun registerNewUser(
+        mode: String,
+        identifierMasked: String?,
+        inviteCode: String?,
+        buildMember: suspend () -> Member,
+    ): Member {
+        val trimmedCode = inviteCode?.trim()?.takeIf { it.isNotEmpty() }
+        if (authPolicy.inviteCodeRequired && trimmedCode == null) {
+            throw BadRequestException("INVITE_CODE_REQUIRED")
+        }
+        val codeEntity = trimmedCode?.let {
+            val logic = inviteLogic ?: throw BadRequestException("INVITE_CODE_UNSUPPORTED")
+            logic.validate(it)
+        }
+        val member = buildMember()
+        if (codeEntity != null && inviteLogic != null) {
+            val record = inviteLogic.applyInviteForNewUser(codeEntity, member.id, mode, identifierMasked)
+            inviteLogic.dispatchAutoFriend(record.id)
+        }
+        return member
+    }
+
+    /** USERNAME_PASSWORD 注册(MEMBER_INVITE_CODE §5.1)。 */
+    suspend fun register(request: controller.app.auth.dto.MemberRegisterRequest): MemberLoginResponse {
+        if (request.mode != port.MemberAuthPolicy.MODE_USERNAME_PASSWORD) {
+            throw BadRequestException("UNSUPPORTED_REGISTER_MODE")
+        }
+        if (port.MemberAuthPolicy.MODE_USERNAME_PASSWORD !in authPolicy.registerModes) {
+            throw BadRequestException("REGISTER_MODE_DISABLED")
+        }
+        // username 规则 = MemberProfileLogic 同一真源(lowercase 归一 + 格式 + 保留字)
+        val username = request.username.trim().lowercase()
+        if (!MemberProfileLogic.USERNAME_REGEX.matches(username)) {
+            throw BadRequestException("INVALID_USERNAME_FORMAT")
+        }
+        if (username in MemberProfileLogic.USERNAME_RESERVED) {
+            throw BadRequestException("USERNAME_RESERVED")
+        }
+        if (request.password.length < 8) {
+            throw BadRequestException("PASSWORD_TOO_SHORT")
+        }
+        if (authPolicy.nicknameRequired && request.nickname?.trim().isNullOrEmpty()) {
+            throw BadRequestException("NICKNAME_REQUIRED")
+        }
+        if (MemberTable.oneWhere { Member::username eq username } != null) {
+            throw BadRequestException("USERNAME_TAKEN")
+        }
+        val member = registerNewUser(
+            mode = port.MemberAuthPolicy.MODE_USERNAME_PASSWORD,
+            identifierMasked = maskUsername(username),
+            inviteCode = request.inviteCode,
+        ) {
+            val ref = identityAdapter.createOrBindAccount(CreateMemberAccountCommand(username = username))
+            insertMemberWithProvidedId(
+                Member(
+                    id = ref.memberId,
+                    identityProvider = ref.provider,
+                    username = username,
+                    usernameUpdatedAt = Clock.System.now().toEpochMilliseconds(),
+                    password = PasswordHasher.hash(request.password),
+                    nickname = request.nickname?.trim().orEmpty(),
+                ),
+            ).also {
+                log.info("member.register.username", mapOf("userId" to it.id, "username" to username))
+            }
+        }
+        return buildResponse(member.id, request.device)
+    }
+
+    /** 账号密码登录(USERNAME_PASSWORD 注册的用户)。 */
+    suspend fun usernameLogin(username: String, password: String, device: LoginDeviceInfo?): MemberLoginResponse {
+        val normalized = username.trim().lowercase()
+        var member = MemberTable.oneWhere { Member::username eq normalized }
+            ?: throw BadRequestException("Invalid username or password")
+        val stored = member.password ?: throw BadRequestException("Password not set for this account")
+        val verification = PasswordHasher.verify(password, stored)
+        if (!verification.verified) throw BadRequestException("Invalid username or password")
+        if (verification.needsRehash) {
+            member = member.copy(password = PasswordHasher.hash(password))
+            MemberTable.update(member)
+        }
+        if (member.status == 0) throw BadRequestException("Account is disabled")
+        MemberTable.update(member.copy(loginDate = Clock.System.now().toEpochMilliseconds()))
+        log.info("member.login.username.success", mapOf("userId" to member.id))
+        return buildResponse(member.id, device)
+    }
+
+    private fun maskUsername(username: String): String =
+        if (username.length <= 4) "${username.first()}***"
+        else "${username.take(2)}***${username.takeLast(2)}"
+
+    private suspend fun registerViaAdapter(mobile: String, nickname: String? = null): Member {
         val ref = identityAdapter.createOrBindAccount(CreateMemberAccountCommand(mobile = mobile))
-        // 昵称留空，不自动编造（RequiredActionsLogic 对空昵称强制 complete_profile 引导用户自己填）。
+        // 昵称:注册表单直填则落库(跳过 complete_profile);否则留空走首登引导。
         val newMember = Member(
             id = ref.memberId,
             identityProvider = ref.provider,
             mobile = mobile,
-            nickname = "",
+            nickname = nickname?.trim().orEmpty(),
         )
         if (!ref.created) {
             // 绑回了 server 既有账号但 platform 无 member 镜像：生产=手机号回收/换绑场景，
