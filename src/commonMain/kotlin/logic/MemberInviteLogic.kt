@@ -41,7 +41,7 @@ class MemberInviteLogic(
      * 任一不满足抛 BadRequestException(统一文案,不泄露具体原因给枚举攻击)。
      */
     suspend fun validate(rawCode: String, bindingUserId: Long? = null): MemberInviteCode {
-        val code = rawCode.trim().uppercase()
+        val code = rawCode.trim()
         if (code.isEmpty()) throw BadRequestException("INVITE_CODE_INVALID")
         val entity = MemberInviteCodeTable.oneWhere { MemberInviteCode::code eq code }
             ?: throw BadRequestException("INVITE_CODE_INVALID")
@@ -147,9 +147,9 @@ class MemberInviteLogic(
     // ─────────── Admin ───────────
 
     suspend fun adminCreate(input: MemberInviteCode): MemberInviteCode {
-        val explicit = input.code.trim().uppercase()
+        val explicit = input.code.trim()
         if (explicit.isNotEmpty() && !CODE_REGEX.matches(explicit)) {
-            throw BadRequestException("邀请码只允许 8-32 位大写字母/数字(不含 0/O/1/I)")
+            throw BadRequestException("邀请码为 1-32 位字符(不含空白)")
         }
         val now = Clock.System.now().toEpochMilliseconds()
         var attempt = 0
@@ -210,6 +210,8 @@ class MemberInviteLogic(
 
     companion object {
         private const val CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
-        private val CODE_REGEX = Regex("^[A-HJ-NP-Z2-9]{8,32}$")
+        // 自定义码放宽为任意 1-32 位非空白字符(用户拍板:纯数字如 "1" 也合法);
+        // 随机生成仍用 8 位防混淆字母表。精确匹配、区分大小写。
+        private val CODE_REGEX = Regex("^\\S{1,32}$")
     }
 }
