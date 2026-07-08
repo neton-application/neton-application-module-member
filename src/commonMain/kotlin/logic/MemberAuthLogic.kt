@@ -343,16 +343,23 @@ class MemberAuthLogic(
     /** 账号密码登录(USERNAME_PASSWORD 注册的用户)。 */
     suspend fun usernameLogin(username: String, password: String, device: LoginDeviceInfo?): MemberLoginResponse {
         val normalized = username.trim().lowercase()
+        // 凭证错误是认证失败(401/10011),不是参数错误(400/10100);message 用机器码,
+        // 客户端按码映射本地化文案(用户拍板:错误必须人话,不泄原始异常)。
         var member = MemberTable.oneWhere { Member::username eq normalized }
-            ?: throw BadRequestException("Invalid username or password")
-        val stored = member.password ?: throw BadRequestException("Password not set for this account")
+            ?: throw neton.core.http.HttpException(neton.core.http.NetonErrorCode.INVALID_CREDENTIALS, "INVALID_CREDENTIALS")
+        val stored = member.password
+            ?: throw neton.core.http.HttpException(neton.core.http.NetonErrorCode.INVALID_CREDENTIALS, "INVALID_CREDENTIALS")
         val verification = PasswordHasher.verify(password, stored)
-        if (!verification.verified) throw BadRequestException("Invalid username or password")
+        if (!verification.verified) {
+            throw neton.core.http.HttpException(neton.core.http.NetonErrorCode.INVALID_CREDENTIALS, "INVALID_CREDENTIALS")
+        }
         if (verification.needsRehash) {
             member = member.copy(password = PasswordHasher.hash(password))
             MemberTable.update(member)
         }
-        if (member.status == 0) throw BadRequestException("Account is disabled")
+        if (member.status == 0) {
+            throw neton.core.http.HttpException(neton.core.http.NetonErrorCode.USER_BANNED, "ACCOUNT_DISABLED")
+        }
         MemberTable.update(member.copy(loginDate = Clock.System.now().toEpochMilliseconds()))
         log.info("member.login.username.success", mapOf("userId" to member.id))
         return buildResponse(member.id, device)
