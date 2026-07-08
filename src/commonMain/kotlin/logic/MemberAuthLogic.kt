@@ -280,10 +280,9 @@ class MemberAuthLogic(
         inviteCode: String?,
         buildMember: suspend () -> Member,
     ): Member {
+        // inviteCodeRequired 不再在注册期拦截:改为登录后 required-actions
+        // gate(bind_invite_code,见 RequiredActionsLogic)。带码注册仍走原路径。
         val trimmedCode = inviteCode?.trim()?.takeIf { it.isNotEmpty() }
-        if (authPolicy.inviteCodeRequired && trimmedCode == null) {
-            throw BadRequestException("INVITE_CODE_REQUIRED")
-        }
         val codeEntity = trimmedCode?.let {
             val logic = inviteLogic ?: throw BadRequestException("INVITE_CODE_UNSUPPORTED")
             logic.validate(it)
@@ -315,9 +314,7 @@ class MemberAuthLogic(
         if (request.password.length < 8) {
             throw BadRequestException("PASSWORD_TOO_SHORT")
         }
-        if (authPolicy.nicknameRequired && request.nickname?.trim().isNullOrEmpty()) {
-            throw BadRequestException("NICKNAME_REQUIRED")
-        }
+        // nickname 不在注册期强制:空昵称由 complete_profile required-action 引导补全
         if (MemberTable.oneWhere { Member::username eq username } != null) {
             throw BadRequestException("USERNAME_TAKEN")
         }

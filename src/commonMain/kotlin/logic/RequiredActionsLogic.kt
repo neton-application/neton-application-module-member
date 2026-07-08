@@ -22,12 +22,26 @@ import model.Member
  */
 class RequiredActionsLogic(
     private val memberLogic: MemberLogic,
+    private val authPolicy: port.MemberAuthPolicy = port.MemberAuthPolicy(),
+    private val inviteLogic: MemberInviteLogic? = null,
 ) {
 
     /** uid 入口：先取 member，未找到的兜底空数组（不抛错，不让登录失败）。 */
     suspend fun computeForUid(uid: Long): List<RequiredAction> {
         val member = memberLogic.get(uid) ?: return emptyList()
-        return computeForMember(member)
+        val actions = computeForMember(member).toMutableList()
+        // 邀请码强制补全(MEMBER_INVITE_CODE §5.0 v2):inviteCodeRequired 不再在
+        // 注册期拦截，改为登录后 gate —— 已绑定的用户(含存量)永不触发。
+        if (authPolicy.inviteCodeRequired && inviteLogic != null && inviteLogic.myBinding(member.id) == null) {
+            actions += RequiredAction(
+                action = "bind_invite_code",
+                required = true,
+                title = "填写邀请码",
+                titleKey = "requiredAction.bindInviteCode",
+                fields = listOf("inviteCode"),
+            )
+        }
+        return actions
     }
 
     /** member 入口：纯函数。R8.4 single source of truth。 */

@@ -28,18 +28,20 @@ object MemberRuntimeBootstrap {
         val messageSendLogic = ctx.getOrNull(MessageSendLogic::class)
         val socialUserLogic = ctx.getOrNull(SocialUserLogic::class)
 
-        // R8.4a 顺序: MemberLogic (@Logic 已 bind) → RequiredActionsLogic → MemberAuthLogic。
+        // R8.4a 顺序: MemberLogic (@Logic 已 bind) → inviteLogic → RequiredActionsLogic → MemberAuthLogic。
         val memberLogic = ctx.get(MemberLogic::class)
-        val requiredActionsLogic = RequiredActionsLogic(memberLogic)
-        ctx.bind(RequiredActionsLogic::class, requiredActionsLogic)
         // 邀请码(MEMBER_INVITE_CODE):自动加好友端口可空(builtin=仅记录来源);
         // 注册策略由产品装配层 bind(privchat 从 conf 读),未装配用默认(仅 PHONE_SMS)。
+        val authPolicy = ctx.getOrNull(port.MemberAuthPolicy::class) ?: port.MemberAuthPolicy()
         val inviteLogic = MemberInviteLogic(
             log = loggerFactory.get("logic.member-invite"),
             db = ctx.get(neton.database.api.DbContext::class),
             invitePort = ctx.getOrNull(port.MemberInvitePort::class),
         )
         ctx.bind(MemberInviteLogic::class, inviteLogic)
+        // inviteCodeRequired 走登录后 required-actions gate(bind_invite_code),不再在注册期拦截
+        val requiredActionsLogic = RequiredActionsLogic(memberLogic, authPolicy, inviteLogic)
+        ctx.bind(RequiredActionsLogic::class, requiredActionsLogic)
         ctx.bind(MemberAuthLogic::class, MemberAuthLogic(
             log = loggerFactory.get("logic.member-auth"),
             identityAdapter = identityAdapter,
@@ -48,7 +50,7 @@ object MemberRuntimeBootstrap {
             messageSendLogic = messageSendLogic,
             socialUserLogic = socialUserLogic,
             inviteLogic = inviteLogic,
-            authPolicy = ctx.getOrNull(port.MemberAuthPolicy::class) ?: port.MemberAuthPolicy(),
+            authPolicy = authPolicy,
         ))
         ctx.bind(MemberProfileLogic::class, MemberProfileLogic(
             log = loggerFactory.get("logic.member-profile"),
