@@ -51,6 +51,7 @@ object MemberRuntimeBootstrap {
             socialUserLogic = socialUserLogic,
             inviteLogic = inviteLogic,
             authPolicy = authPolicy,
+            welcomePort = ctx.getOrNull(port.MemberWelcomePort::class),
         ))
         ctx.bind(MemberProfileLogic::class, MemberProfileLogic(
             log = loggerFactory.get("logic.member-profile"),

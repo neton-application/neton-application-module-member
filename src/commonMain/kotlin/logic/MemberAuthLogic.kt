@@ -34,6 +34,7 @@ class MemberAuthLogic(
     private val socialUserLogic: SocialUserLogic? = null,
     private val inviteLogic: MemberInviteLogic? = null,
     private val authPolicy: port.MemberAuthPolicy = port.MemberAuthPolicy(),
+    private val welcomePort: port.MemberWelcomePort? = null,
 ) {
 
     companion object {
@@ -291,6 +292,11 @@ class MemberAuthLogic(
         if (codeEntity != null && inviteLogic != null) {
             val record = inviteLogic.applyInviteForNewUser(codeEntity, member.id, mode, identifierMasked)
             inviteLogic.dispatchAutoFriend(record.id)
+        }
+        // 注册欢迎系统消息(弱一致,失败仅日志不影响注册)
+        welcomePort?.let { port ->
+            runCatching { port.sendWelcome(member.id) }
+                .onFailure { log.warn("member.register.welcome_failed", mapOf("userId" to member.id, "error" to (it.message ?: ""))) }
         }
         return member
     }
