@@ -32,7 +32,9 @@ class RequiredActionsLogic(
         val actions = computeForMember(member).toMutableList()
         // 邀请码强制补全(MEMBER_INVITE_CODE §5.0 v2):inviteCodeRequired 不再在
         // 注册期拦截，改为登录后 gate —— 已绑定的用户(含存量)永不触发。
-        if (authPolicy.inviteCodeRequired && inviteLogic != null && inviteLogic.myBinding(member.id) == null) {
+        if (authPolicy.inviteCodeRequired && inviteLogic != null &&
+            isInviteAnchorHit(member) && inviteLogic.myBinding(member.id) == null
+        ) {
             actions += RequiredAction(
                 action = "bind_invite_code",
                 required = true,
@@ -42,6 +44,17 @@ class RequiredActionsLogic(
             )
         }
         return actions
+    }
+
+    /**
+     * inviteCodeRequiredSince 时间锚:未配置 → 约束所有未绑定用户;配置后只 gate
+     * 锚点之后注册的账号(存量豁免)。createdAt 缺失的异常数据按存量对待(不 gate,
+     * 避免把老账号锁在补全页)。
+     */
+    private fun isInviteAnchorHit(member: Member): Boolean {
+        val since = authPolicy.inviteCodeRequiredSince?.trim().takeUnless { it.isNullOrEmpty() } ?: return true
+        val created = member.createdAt?.trim().takeUnless { it.isNullOrEmpty() } ?: return false
+        return created >= since
     }
 
     /** member 入口：纯函数。R8.4 single source of truth。 */
