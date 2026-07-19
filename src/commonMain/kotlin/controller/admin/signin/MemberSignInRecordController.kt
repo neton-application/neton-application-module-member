@@ -12,7 +12,7 @@ class MemberSignInRecordController(
 
     // 同 config/list-all：app 侧已占 GET /member/sign-in/record/page，admin 换 pattern。
     @Get("/page-all")
-    @Permission("member:signin:page")
+    @Permission("member:signin:query")
     suspend fun page(
         pageNo: Int = 1,
         pageSize: Int = 10,

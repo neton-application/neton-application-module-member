@@ -11,7 +11,7 @@ class MemberPointRecordController(
 ) {
 
     @Get("/page")
-    @Permission("member:point:page")
+    @Permission("member:point:query")
     suspend fun page(
         pageNo: Int = 1,
         pageSize: Int = 10,

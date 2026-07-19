@@ -42,9 +42,8 @@ data class AuthedSendSmsCodeRequest(
  * Member 用户面 profile 控制器（spec MODULE_MEMBER_PROFILE_SPEC §3 / §4）。
  *
  * 历史 `PUT /app/member/user/update`（混改 nickname + avatar）已下线，所有 profile
- * 字段按操作单一职责拆开，每个端点 publish 一次 [com.netonstream.privchat
- * .application.module.privchat.hook.hooks.MemberProfileChangedHook]，订阅者
- * 决定是否同步到 server。
+ * 字段按操作单一职责拆开，每个端点通过 [MemberProfileLogic] 调用
+ * [MemberIdentityAdapter]，由部署模式决定是否同步外部身份投影。
  */
 @Controller("/member/user")
 class MemberUserController(
@@ -76,9 +75,7 @@ class MemberUserController(
     suspend fun updateAvatar(
         identity: Identity,
         @Body request: UpdateMemberAvatarRequest,
-    ) {
-        memberProfileLogic.updateAvatar(identity.id.toLong(), request.fileId)
-    }
+    ): Member = memberProfileLogic.updateAvatar(identity.id.toLong(), request.fileId)
 
     @Put("/update-username")
     @FreshAuth

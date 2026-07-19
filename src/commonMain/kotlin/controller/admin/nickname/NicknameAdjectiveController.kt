@@ -38,7 +38,7 @@ class NicknameAdjectiveController(
 ) {
 
     @Get("/page")
-    @Permission("member:nickname:read")
+    @Permission("member:nickname:query")
     suspend fun page(
         @Query page: Int = 1,
         @Query pageSize: Int = 50,
@@ -64,7 +64,7 @@ class NicknameAdjectiveController(
 
     /** 导出全量启用词条 (admin 前端拼 .txt 下载用)。 */
     @Get("/export")
-    @Permission("member:nickname:read")
+    @Permission("member:nickname:query")
     suspend fun export(): List<String> {
         return MemberNicknameAdjectiveTable.query {
             where { MemberNicknameAdjective::status eq 1 }

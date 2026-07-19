@@ -62,13 +62,13 @@ class MemberLevelController(
     }
 
     @Get("/list")
-    @Permission("member:level:list")
+    @Permission("member:level:query")
     suspend fun list(): List<MemberLevel> {
         return memberLevelLogic.list()
     }
 
     @Get("/list-all-simple")
-    @Permission("member:level:list")
+    @Permission("member:level:query")
     suspend fun listAllSimple(): List<MemberLevel> {
         return memberLevelLogic.listAllSimple()
     }

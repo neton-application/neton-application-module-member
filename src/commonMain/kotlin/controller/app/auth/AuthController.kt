@@ -13,6 +13,7 @@ import kotlinx.serialization.Serializable
 import enums.SmsScene
 import neton.core.annotations.*
 import neton.core.http.BadRequestException
+import neton.core.http.HttpRequest
 import neton.validation.annotations.Min
 import neton.validation.annotations.NotBlank
 import neton.validation.annotations.Pattern
@@ -67,29 +68,34 @@ class AuthController(
     @Post("/login")
     @AllowAnonymous
     @RateLimit(windowSeconds = 300, maxRequests = 10, scope = RateLimitScope.IP, message = "Login attempts exceeded, please try again later")
-    suspend fun login(@Body request: MemberLoginRequest): MemberLoginResponse {
-        return memberAuthLogic.login(request)
+    suspend fun login(@Body request: MemberLoginRequest, httpRequest: HttpRequest): MemberLoginResponse {
+        return memberAuthLogic.login(request, httpRequest.clientIp())
     }
 
     /** 通用注册入口(MEMBER_INVITE_CODE §5.1):v1 = USERNAME_PASSWORD;PHONE_SMS 走 sms-login。 */
     @Post("/register")
     @AllowAnonymous
-    suspend fun register(@Body request: MemberRegisterRequest): MemberLoginResponse {
-        return memberAuthLogic.register(request)
+    suspend fun register(@Body request: MemberRegisterRequest, httpRequest: HttpRequest): MemberLoginResponse {
+        return memberAuthLogic.register(request, httpRequest.clientIp())
     }
 
     /** 账号密码登录(USERNAME_PASSWORD 注册的用户)。 */
     @Post("/login-username")
     @AllowAnonymous
-    suspend fun loginUsername(@Body request: UsernameLoginRequest): MemberLoginResponse {
-        return memberAuthLogic.usernameLogin(request.username, request.password, request.device)
+    suspend fun loginUsername(@Body request: UsernameLoginRequest, httpRequest: HttpRequest): MemberLoginResponse {
+        return memberAuthLogic.usernameLogin(
+            request.username,
+            request.password,
+            request.device,
+            httpRequest.clientIp(),
+        )
     }
 
     @Post("/sms-login")
     @AllowAnonymous
     @RateLimit(windowSeconds = 60, maxRequests = 5, scope = RateLimitScope.IP, message = "SMS login attempts exceeded, please try again later")
-    suspend fun smsLogin(@Body request: MemberLoginRequest): MemberLoginResponse {
-        return memberAuthLogic.smsLogin(request)
+    suspend fun smsLogin(@Body request: MemberLoginRequest, httpRequest: HttpRequest): MemberLoginResponse {
+        return memberAuthLogic.smsLogin(request, httpRequest.clientIp())
     }
 
     @Post("/logout")
@@ -140,12 +146,20 @@ class AuthController(
     @Post("/social-login")
     @AllowAnonymous
     @RateLimit(windowSeconds = 300, maxRequests = 10, scope = RateLimitScope.IP, message = "Social login attempts exceeded, please try again later")
-    suspend fun socialLogin(@Body request: SocialLoginRequest): MemberLoginResponse {
+    suspend fun socialLogin(@Body request: SocialLoginRequest, httpRequest: HttpRequest): MemberLoginResponse {
         return memberAuthLogic.socialLogin(
             socialType = request.socialType,
             code = request.code,
             redirectUri = request.redirectUri ?: "",
             device = request.device,
+            remoteIp = httpRequest.clientIp(),
         )
     }
 }
+
+/** Nginx overwrites X-Real-IP, unlike X-Forwarded-For which may contain a client-supplied prefix. */
+private fun HttpRequest.clientIp(): String? =
+    header("X-Real-IP")
+        ?.trim()
+        ?.takeIf(String::isNotEmpty)
+        ?: remoteAddress.trim().takeIf(String::isNotEmpty)

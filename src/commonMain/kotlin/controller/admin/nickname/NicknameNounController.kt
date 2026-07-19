@@ -32,7 +32,7 @@ class NicknameNounController(
 ) {
 
     @Get("/page")
-    @Permission("member:nickname:read")
+    @Permission("member:nickname:query")
     suspend fun page(
         @Query page: Int = 1,
         @Query pageSize: Int = 50,
@@ -57,7 +57,7 @@ class NicknameNounController(
     }
 
     @Get("/export")
-    @Permission("member:nickname:read")
+    @Permission("member:nickname:query")
     suspend fun export(): List<String> {
         return MemberNicknameNounTable.query {
             where { MemberNicknameNoun::status eq 1 }

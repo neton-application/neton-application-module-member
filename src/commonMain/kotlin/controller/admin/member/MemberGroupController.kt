@@ -35,7 +35,7 @@ class MemberGroupController(
     suspend fun get(@PathVariable id: Long) = groupLogic.getById(id)
 
     @Get("/page")
-    @Permission("member:group:page")
+    @Permission("member:group:query")
     suspend fun page(
         @Query pageNo: Int = 1,
         @Query pageSize: Int = 10,
@@ -44,6 +44,6 @@ class MemberGroupController(
     ) = groupLogic.page(pageNo, pageSize, name, status)
 
     @Get("/list-all-simple")
-    @Permission("member:group:list")
+    @Permission("member:group:query")
     suspend fun listAllSimple() = groupLogic.listAllSimple()
 }

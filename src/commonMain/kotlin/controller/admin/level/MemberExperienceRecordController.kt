@@ -14,7 +14,7 @@ class MemberExperienceRecordController(
 ) {
 
     @Get("/page")
-    @Permission("member:level:page")
+    @Permission("member:level:query")
     suspend fun page(
         @Query pageNo: Int = 1,
         @Query pageSize: Int = 10,

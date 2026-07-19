@@ -11,7 +11,7 @@ import neton.core.annotations.Permission
 class AddressController {
 
     @Get("/list")
-    @Permission("member:address:list")
+    @Permission("member:address:query")
     suspend fun list(userId: Long): List<Address> {
         return AddressTable.query {
             where {

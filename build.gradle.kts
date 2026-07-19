@@ -25,6 +25,7 @@ kotlin {
             dependencies {
                 implementation("com.netonstream.app:module-system")
                 implementation("com.netonstream.app:module-infra")
+                implementation("com.netonframework:geolite4k:0.1.0")
                 // MEMBER-IDENTITY-ADAPTER(M1): 去掉 privchat:client/hook —— member 脱离 privchat 直接依赖。
                 implementation("com.netonstream:neton-core")
                 implementation("com.netonstream:neton-routing")

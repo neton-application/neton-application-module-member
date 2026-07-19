@@ -50,5 +50,5 @@ internal suspend fun insertMemberWithProvidedId(member: Member): Member {
         .bind("createdAt", now)
         .bind("updatedAt", now)
     SqlxDatabase.require().execute(stmt).getOrThrow()
-    return member.copy(createdAt = now.toString(), updatedAt = now.toString())
+    return member.copy(createdAt = now, updatedAt = now)
 }

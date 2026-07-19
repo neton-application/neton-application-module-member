@@ -35,15 +35,15 @@ class MemberTagController(
     suspend fun get(@PathVariable id: Long) = tagLogic.getById(id)
 
     @Get("/list")
-    @Permission("member:tag:list")
+    @Permission("member:tag:query")
     suspend fun list() = tagLogic.list()
 
     @Get("/list-all-simple")
-    @Permission("member:tag:list")
+    @Permission("member:tag:query")
     suspend fun listAllSimple() = tagLogic.listAllSimple()
 
     @Get("/page")
-    @Permission("member:tag:page")
+    @Permission("member:tag:query")
     suspend fun page(
         @Query pageNo: Int = 1,
         @Query pageSize: Int = 10,

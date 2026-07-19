@@ -10,6 +10,7 @@ rootProject.name = "module-member"
 
 // 框架
 includeBuild("../neton")
+includeBuild("../geolite4k")
 
 // canonicalize：统一用 ../../Neton/ 前缀指向 Neton canonical 工作区（跨工作区一致）
 

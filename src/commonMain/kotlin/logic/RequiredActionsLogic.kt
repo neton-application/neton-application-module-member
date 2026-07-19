@@ -1,6 +1,7 @@
 package logic
 
 import controller.app.auth.dto.RequiredAction
+import kotlin.time.Instant
 import model.Member
 
 /**
@@ -53,8 +54,11 @@ class RequiredActionsLogic(
      */
     private fun isInviteAnchorHit(member: Member): Boolean {
         val since = authPolicy.inviteCodeRequiredSince?.trim().takeUnless { it.isNullOrEmpty() } ?: return true
-        val created = member.createdAt?.trim().takeUnless { it.isNullOrEmpty() } ?: return false
-        return created >= since
+        val created = member.createdAt ?: return false
+        val sinceEpoch = since.toLongOrNull()
+            ?: runCatching { Instant.parse(since).toEpochMilliseconds() }.getOrNull()
+            ?: return false
+        return created >= sinceEpoch
     }
 
     /** member 入口：纯函数。R8.4 single source of truth。 */

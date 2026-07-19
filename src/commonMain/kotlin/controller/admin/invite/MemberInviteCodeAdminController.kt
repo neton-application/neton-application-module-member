@@ -38,7 +38,7 @@ class MemberInviteCodeAdminController(
     )
 
     @Get("/list-all")
-    @Permission("member:invite-code:list")
+    @Permission("member:invite-code:query")
     suspend fun listAll(): List<MemberInviteCode> = inviteLogic.listAll()
 
     @Post("/create")

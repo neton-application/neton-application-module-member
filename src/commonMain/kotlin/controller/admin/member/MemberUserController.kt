@@ -1,11 +1,14 @@
 package controller.admin.member
 
 import controller.admin.member.dto.FillBotNicknamesResponse
+import controller.admin.member.dto.MemberVO
 import controller.admin.member.dto.UpdateMemberRequest
 import controller.admin.member.dto.UpdateMemberUserLevelRequest
 import controller.admin.member.dto.UpdateMemberUserPointRequest
+import dto.PageResponse
 import logic.MemberLogic
 import logic.NicknameGenerator
+import logic.MemberGeoLocationService
 import model.Member
 import neton.core.annotations.Controller
 import neton.core.annotations.Get
@@ -21,6 +24,7 @@ class MemberUserController(
     private val memberLogic: MemberLogic,
     private val nicknameGenerator: NicknameGenerator,
 ) {
+    private val geoLocation = MemberGeoLocationService.fromConfig()
 
     @Put("/update")
     @Permission("member:user:update")
@@ -53,12 +57,12 @@ class MemberUserController(
 
     @Get("/get/{id}")
     @Permission("member:user:query")
-    suspend fun get(@PathVariable id: Long): Member? {
-        return memberLogic.get(id)
+    suspend fun get(@PathVariable id: Long): MemberVO? {
+        return memberLogic.get(id)?.toAdminVO()
     }
 
     @Get("/page")
-    @Permission("member:user:page")
+    @Permission("member:user:query")
     suspend fun page(
         @Query pageNo: Int = 1,
         @Query pageSize: Int = 10,
@@ -69,7 +73,49 @@ class MemberUserController(
         @Query groupId: Long? = null,
         // 默认隐藏陪玩机器人；admin 需要时 ?includeRobot=true。
         @Query includeRobot: Boolean = false
-    ) = memberLogic.page(pageNo, pageSize, nickname, mobile, status, levelId, groupId, includeRobot)
+    ): PageResponse<MemberVO> = memberLogic.page(
+        pageNo,
+        pageSize,
+        nickname,
+        mobile,
+        status,
+        levelId,
+        groupId,
+        includeRobot,
+    ).let { page ->
+        PageResponse(
+            list = page.list.map { it.toAdminVO() },
+            total = page.total,
+            page = page.page,
+            size = page.size,
+            totalPages = page.totalPages,
+        )
+    }
+
+    private fun Member.toAdminVO() = MemberVO(
+        id = id,
+        identityProvider = identityProvider,
+        username = username,
+        usernameUpdatedAt = usernameUpdatedAt,
+        mobile = mobile,
+        nickname = nickname,
+        avatar = avatar,
+        gender = gender,
+        bio = bio,
+        birthday = birthday,
+        isRobot = isRobot,
+        status = status,
+        levelId = levelId,
+        experience = experience,
+        point = point,
+        groupId = groupId,
+        registerIp = registerIp,
+        loginIp = loginIp,
+        loginRegion = geoLocation.resolve(loginIp),
+        loginDate = loginDate,
+        createdAt = createdAt,
+        updatedAt = updatedAt,
+    )
 
     /** 扫所有 is_robot=1 且 nickname 为 null/空 的陪玩账号，用 [NicknameGenerator] 词库随机补昵称。
      *

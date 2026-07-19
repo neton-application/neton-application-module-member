@@ -65,7 +65,7 @@ class MemberAuthLogic(
         return if (mobile.length < 8) "***" else "${mobile.take(4)}****${mobile.takeLast(4)}"
     }
 
-    suspend fun login(request: MemberLoginRequest): MemberLoginResponse {
+    suspend fun login(request: MemberLoginRequest, remoteIp: String? = null): MemberLoginResponse {
         val mobile = requireE164(request.mobile)
         var member = MemberTable.oneWhere {
             Member::mobile eq mobile
@@ -90,14 +90,13 @@ class MemberAuthLogic(
             throw BadRequestException("Account is disabled")
         }
 
-        val now = Clock.System.now().toEpochMilliseconds()
-        MemberTable.update(member.copy(loginDate = now))
+        recordSuccessfulLogin(member, remoteIp)
 
         log.info("member.login.success", mapOf("userId" to member.id, "mobile" to maskMobile(mobile)))
         return buildResponse(member.id, request.device)
     }
 
-    suspend fun smsLogin(request: MemberLoginRequest): MemberLoginResponse {
+    suspend fun smsLogin(request: MemberLoginRequest, remoteIp: String? = null): MemberLoginResponse {
         val mobile = requireE164(request.mobile)
         val smsCode = request.smsCode ?: throw BadRequestException("SMS code is required")
         verifySmsCode(mobile, smsCode)
@@ -107,15 +106,14 @@ class MemberAuthLogic(
                 mode = port.MemberAuthPolicy.MODE_PHONE_SMS,
                 identifierMasked = maskMobile(mobile),
                 inviteCode = request.inviteCode,
-                buildMember = { registerViaAdapter(mobile, nickname = request.nickname) },
+                buildMember = { registerViaAdapter(mobile, nickname = request.nickname, registerIp = remoteIp) },
             )
 
         if (member.status == 0) {
             throw BadRequestException("Account is disabled")
         }
 
-        val now = Clock.System.now().toEpochMilliseconds()
-        MemberTable.update(member.copy(loginDate = now))
+        recordSuccessfulLogin(member, remoteIp)
 
         log.info("member.sms.login.success", mapOf("userId" to member.id, "mobile" to maskMobile(mobile)))
         return buildResponse(member.id, request.device)
@@ -197,6 +195,7 @@ class MemberAuthLogic(
         code: String,
         redirectUri: String,
         device: LoginDeviceInfo?,
+        remoteIp: String? = null,
     ): MemberLoginResponse {
         val social = socialUserLogic
             ?: throw BadRequestException("Social login not configured")
@@ -219,6 +218,7 @@ class MemberAuthLogic(
                 // 社交昵称缺失时留空，不自动编造（空昵称由 complete_profile 引导补齐）。
                 nickname = socialUser.nickname ?: "",
                 avatar = socialUser.avatar,
+                registerIp = remoteIp.normalizedIp(),
             )
             member = insertMemberWithProvidedId(newMember)
             social.bind(member.id, userType = 2, socialType, code, redirectUri)
@@ -232,8 +232,7 @@ class MemberAuthLogic(
             throw BadRequestException("Account is disabled")
         }
 
-        val now = Clock.System.now().toEpochMilliseconds()
-        MemberTable.update(member.copy(loginDate = now))
+        recordSuccessfulLogin(member, remoteIp)
 
         log.info("member.social.login.success", mapOf("userId" to member.id, "socialType" to socialType))
         return buildResponse(member.id, device)
@@ -302,7 +301,10 @@ class MemberAuthLogic(
     }
 
     /** USERNAME_PASSWORD 注册(MEMBER_INVITE_CODE §5.1)。 */
-    suspend fun register(request: controller.app.auth.dto.MemberRegisterRequest): MemberLoginResponse {
+    suspend fun register(
+        request: controller.app.auth.dto.MemberRegisterRequest,
+        remoteIp: String? = null,
+    ): MemberLoginResponse {
         if (request.mode != port.MemberAuthPolicy.MODE_USERNAME_PASSWORD) {
             throw BadRequestException("UNSUPPORTED_REGISTER_MODE")
         }
@@ -338,6 +340,7 @@ class MemberAuthLogic(
                     usernameUpdatedAt = Clock.System.now().toEpochMilliseconds(),
                     password = PasswordHasher.hash(request.password),
                     nickname = request.nickname?.trim().orEmpty(),
+                    registerIp = remoteIp.normalizedIp(),
                 ),
             ).also {
                 log.info("member.register.username", mapOf("userId" to it.id, "username" to username))
@@ -347,7 +350,12 @@ class MemberAuthLogic(
     }
 
     /** 账号密码登录(USERNAME_PASSWORD 注册的用户)。 */
-    suspend fun usernameLogin(username: String, password: String, device: LoginDeviceInfo?): MemberLoginResponse {
+    suspend fun usernameLogin(
+        username: String,
+        password: String,
+        device: LoginDeviceInfo?,
+        remoteIp: String? = null,
+    ): MemberLoginResponse {
         val normalized = username.trim().lowercase()
         // 凭证错误是认证失败(401/10011),不是参数错误(400/10100);message 用机器码,
         // 客户端按码映射本地化文案(用户拍板:错误必须人话,不泄原始异常)。
@@ -366,7 +374,7 @@ class MemberAuthLogic(
         if (member.status == 0) {
             throw neton.core.http.HttpException(neton.core.http.NetonErrorCode.USER_BANNED, "ACCOUNT_DISABLED")
         }
-        MemberTable.update(member.copy(loginDate = Clock.System.now().toEpochMilliseconds()))
+        recordSuccessfulLogin(member, remoteIp)
         log.info("member.login.username.success", mapOf("userId" to member.id))
         return buildResponse(member.id, device)
     }
@@ -375,7 +383,11 @@ class MemberAuthLogic(
         if (username.length <= 4) "${username.first()}***"
         else "${username.take(2)}***${username.takeLast(2)}"
 
-    private suspend fun registerViaAdapter(mobile: String, nickname: String? = null): Member {
+    private suspend fun registerViaAdapter(
+        mobile: String,
+        nickname: String? = null,
+        registerIp: String? = null,
+    ): Member {
         val ref = identityAdapter.createOrBindAccount(CreateMemberAccountCommand(mobile = mobile))
         // 昵称:注册表单直填则落库(跳过 complete_profile);否则留空走首登引导。
         val newMember = Member(
@@ -383,6 +395,7 @@ class MemberAuthLogic(
             identityProvider = ref.provider,
             mobile = mobile,
             nickname = nickname?.trim().orEmpty(),
+            registerIp = registerIp.normalizedIp(),
         )
         if (!ref.created) {
             // 绑回了 server 既有账号但 platform 无 member 镜像：生产=手机号回收/换绑场景，
@@ -398,6 +411,18 @@ class MemberAuthLogic(
         )
         return insertMemberWithProvidedId(newMember)
     }
+
+    private suspend fun recordSuccessfulLogin(member: Member, remoteIp: String?) {
+        MemberTable.update(
+            member.copy(
+                loginIp = remoteIp.normalizedIp(),
+                loginDate = Clock.System.now().toEpochMilliseconds(),
+            ),
+        )
+    }
+
+    private fun String?.normalizedIp(): String? =
+        this?.trim()?.takeIf { it.isNotEmpty() }?.take(64)
 
     /**
      * 给指定 uid + 设备直接颁发完整的登录返回（spec QR_API §5）。

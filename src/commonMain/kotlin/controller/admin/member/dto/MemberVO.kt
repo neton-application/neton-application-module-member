@@ -10,9 +10,16 @@ import neton.validation.annotations.Size
 @Serializable
 data class MemberVO(
     val id: Long = 0,
+    val identityProvider: String = "builtin",
+    val username: String? = null,
+    val usernameUpdatedAt: Long? = null,
     val mobile: String? = null,
     val nickname: String? = null,
     val avatar: String? = null,
+    val gender: Int = 0,
+    val bio: String? = null,
+    val birthday: String? = null,
+    val isRobot: Int = 0,
     val status: Int? = null,
     val levelId: Long? = null,
     val levelName: String? = null,
@@ -22,8 +29,10 @@ data class MemberVO(
     val groupName: String? = null,
     val registerIp: String? = null,
     val loginIp: String? = null,
+    val loginRegion: String? = null,
     val loginDate: Long? = null,
-    val createdAt: String? = null
+    val createdAt: Long? = null,
+    val updatedAt: Long? = null,
 )
 
 @Serializable
