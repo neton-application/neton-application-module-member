@@ -6,10 +6,11 @@ import neton.core.annotations.Controller
 import neton.core.annotations.Get
 import neton.core.annotations.Post
 import neton.core.annotations.Body
+import neton.core.interfaces.Identity
 import logic.MemberInviteLogic
 import port.MemberAuthPolicy
 
-/** 【我】→【填写邀请码】(MEMBER_INVITE_CODE §5.2)。userId 传参约定与 sign-in 接口一致。 */
+/** 邀请码 app 端（MEMBER_INVITE_CODE §5.2）。 */
 @Controller("/member/invite-code")
 class MemberInviteCodeController(
     private val inviteLogic: MemberInviteLogic,
@@ -24,9 +25,10 @@ class MemberInviteCodeController(
         val boundAt: Long? = null,
     )
 
+    /** 谁邀请了我（被邀请方绑定）。 */
     @Get("/my")
-    suspend fun my(userId: Long): MyBindingVO {
-        val record = inviteLogic.myBinding(userId) ?: return MyBindingVO(bound = false)
+    suspend fun my(identity: Identity): MyBindingVO {
+        val record = inviteLogic.myBinding(identity.id.toLong()) ?: return MyBindingVO(bound = false)
         return MyBindingVO(
             bound = true,
             code = record.code,
@@ -34,6 +36,19 @@ class MemberInviteCodeController(
             autoFriendStatus = record.autoFriendStatus,
             boundAt = record.boundAt,
         )
+    }
+
+    @Serializable
+    data class MyCodeVO(
+        val code: String,
+        val usedCount: Int,
+    )
+
+    /** 我的专属邀请码（不存在则生成）。用于分享/URL 携带邀请他人。 */
+    @Get("/mine")
+    suspend fun mine(identity: Identity): MyCodeVO {
+        val entity = inviteLogic.getOrCreateMyCode(identity.id.toLong())
+        return MyCodeVO(code = entity.code, usedCount = entity.usedCount)
     }
 
     @Serializable
@@ -50,12 +65,12 @@ class MemberInviteCodeController(
         val autoFriendStatus: Int = 0,
     )
 
+    /** 注册后补填邀请码。 */
     @Post("/bind")
-    suspend fun bind(userId: Long, @Body request: BindRequest): BindResultVO {
+    suspend fun bind(identity: Identity, @Body request: BindRequest): BindResultVO {
         val record = inviteLogic.bind(
-            userId = userId,
+            userId = identity.id.toLong(),
             rawCode = request.inviteCode,
-            // 补填与注册方式无关;registerMode 列在补填场景仅作记录占位。
             registerMode = MemberAuthPolicy.MODE_PHONE_SMS,
             identifierMasked = null,
         )

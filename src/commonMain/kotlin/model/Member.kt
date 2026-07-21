@@ -39,6 +39,8 @@ data class Member(
     /** 1=系统生成的陪玩机器人账号，默认不进普通会员列表/积分/每日统计；与
      *  game_club_member.is_auto_player(club-scoped) 正交。spec GAME_CLUB_ROOM_TEMPLATE_SPEC。 */
     val isRobot: Int = 0,
+    /** 会话版本；改密/登出全端时递增，builtin token 携带并校验（MEMBER-IDENTITY §会话）。 */
+    val sessionVersion: Long = 0,
     @SoftDelete
     val deleted: Int = 0,
     @CreatedAt

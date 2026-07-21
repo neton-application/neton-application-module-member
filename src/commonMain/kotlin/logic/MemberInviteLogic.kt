@@ -175,6 +175,30 @@ class MemberInviteLogic(
         return MemberInviteRecordTable.get(record.id) ?: record
     }
 
+    // ─────────── 个人专属邀请码 ───────────
+
+    /**
+     * 获取当前用户的专属邀请码，不存在则生成（全员可有自己的码，用于分享邀请）。
+     * 无限次数（maxUses=0）、永久有效。幂等：已有则直接返回。
+     */
+    suspend fun getOrCreateMyCode(userId: Long): MemberInviteCode {
+        MemberInviteCodeTable.oneWhere { MemberInviteCode::ownerUserId eq userId }?.let { return it }
+        val now = Clock.System.now().toEpochMilliseconds()
+        var attempt = 0
+        while (true) {
+            val code = randomCode()
+            if (MemberInviteCodeTable.oneWhere { MemberInviteCode::code eq code } == null) {
+                return MemberInviteCodeTable.insert(
+                    MemberInviteCode(
+                        code = code, ownerUserId = userId, maxUses = 0, usedCount = 0,
+                        status = 1, createdBy = userId, createdAt = now, updatedAt = now,
+                    ),
+                )
+            }
+            if (++attempt > 5) throw BadRequestException("邀请码生成冲突,请重试")
+        }
+    }
+
     // ─────────── Admin ───────────
 
     suspend fun adminCreate(input: MemberInviteCode): MemberInviteCode {
