@@ -37,6 +37,7 @@ object MemberRuntimeBootstrap {
             log = loggerFactory.get("logic.member-invite"),
             db = ctx.get(neton.database.api.DbContext::class),
             invitePort = ctx.getOrNull(port.MemberInvitePort::class),
+            rewardRegistry = ctx.getOrNull(port.MemberInviteRewardRegistry::class),
         )
         ctx.bind(MemberInviteLogic::class, inviteLogic)
         // inviteCodeRequired 走登录后 required-actions gate(bind_invite_code),不再在注册期拦截

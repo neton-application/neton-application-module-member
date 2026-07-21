@@ -291,6 +291,7 @@ class MemberAuthLogic(
         if (codeEntity != null && inviteLogic != null) {
             val record = inviteLogic.applyInviteForNewUser(codeEntity, member.id, mode, identifierMasked)
             inviteLogic.dispatchAutoFriend(record.id)
+            inviteLogic.dispatchInviteReward(record.id)
         }
         // 注册欢迎系统消息(弱一致,失败仅日志不影响注册)
         welcomePort?.let { port ->

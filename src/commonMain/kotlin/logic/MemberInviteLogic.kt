@@ -28,6 +28,7 @@ class MemberInviteLogic(
     private val log: Logger,
     private val db: DbContext,
     private val invitePort: port.MemberInvitePort? = null,
+    private val rewardRegistry: port.MemberInviteRewardRegistry? = null,
 ) {
 
     // ─────────── 生成与校验 ───────────
@@ -118,6 +119,35 @@ class MemberInviteLogic(
         }
     }
 
+    /**
+     * 事务提交后触发所有已注册的邀请奖励回调(弱一致,与 autoFriend 同位)。
+     * 计算邀请人累计成功邀请数作为阈值锚点;单回调失败只记录、不影响其它。
+     */
+    suspend fun dispatchInviteReward(recordId: Long) {
+        val registry = rewardRegistry ?: return
+        if (registry.listeners.isEmpty()) return
+        val record = MemberInviteRecordTable.get(recordId) ?: return
+        val inviter = record.inviterUserId ?: return
+        val total = MemberInviteRecordTable.query {
+            where { MemberInviteRecord::inviterUserId eq inviter }
+        }.list().size.toLong()
+        val event = port.MemberInviteRewardEvent(
+            inviterUserId = inviter,
+            inviteeUserId = record.inviteeUserId,
+            recordId = recordId,
+            code = record.code,
+            totalInvited = total,
+        )
+        for (listener in registry.listeners) {
+            try {
+                listener.onInviteReward(event)
+            } catch (e: Exception) {
+                log.warn("member.invite.reward.failed",
+                    mapOf("recordId" to recordId, "error" to (e.message ?: "")))
+            }
+        }
+    }
+
     /** 注册路径绑定:计数+record 同一事务(评审 C)。bindScene=REGISTER。 */
     suspend fun applyInviteForNewUser(
         codeEntity: MemberInviteCode,
@@ -141,6 +171,7 @@ class MemberInviteLogic(
             applyInTx(entity, userId, registerMode, identifierMasked, bindScene = 2)
         }
         dispatchAutoFriend(record.id)
+        dispatchInviteReward(record.id)
         return MemberInviteRecordTable.get(record.id) ?: record
     }
 
