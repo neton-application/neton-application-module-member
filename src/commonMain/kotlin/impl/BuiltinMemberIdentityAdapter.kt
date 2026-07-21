@@ -21,7 +21,8 @@ import kotlin.time.ExperimentalTime
 /**
  * 内置身份后端（自托管账号，无外部 server）。
  *
- * - 账号：按 mobile/username 命中 member_users 复用 id，否则本地 [MemberIdGenerator] 生成。
+ * - 账号：按 mobile/username 命中 member_users 复用 id，否则取数据库序列
+ *   `member_users_id_seq` 的下一个值（普通自增主键，JS 安全的小整数）。
  * - token：复用应用的 [JwtAuthenticator]（HS256 + security.jwt.secretKey），与 admin token
  *   同一套签验，`/app` 路由组直接验通，`Identity.id = sub`。
  * - 会话：token 携带 `sid`(session_version)/`did`(device)；改密 bump session_version。
@@ -31,7 +32,6 @@ import kotlin.time.ExperimentalTime
  */
 class BuiltinMemberIdentityAdapter(
     private val jwt: JwtAuthenticator,
-    private val idGenerator: MemberIdGenerator,
     private val db: DbContext,
 ) : MemberIdentityAdapter {
 
@@ -53,8 +53,13 @@ class BuiltinMemberIdentityAdapter(
         if (existing != null) {
             return MemberAccountRef(MemberIdentityProvider.BUILTIN, existing.id, created = false)
         }
-        return MemberAccountRef(MemberIdentityProvider.BUILTIN, idGenerator.next(), created = true)
+        return MemberAccountRef(MemberIdentityProvider.BUILTIN, nextMemberId(), created = true)
     }
+
+    /** 数据库序列取下一个主键（自增小整数，JS 安全）。 */
+    private suspend fun nextMemberId(): Long =
+        db.fetchAll("SELECT nextval('member_users_id_seq') AS id")
+            .first().long("id")
 
     override suspend fun issueToken(command: IssueMemberTokenCommand): MemberTokenBundle {
         val sessionVersion = MemberTable.get(command.memberId)?.sessionVersion ?: 0L

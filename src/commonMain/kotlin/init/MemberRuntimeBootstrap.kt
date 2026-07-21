@@ -7,7 +7,6 @@ import logic.MessageSendLogic
 import logic.SocialUserLogic
 import port.MemberIdentityAdapter
 import impl.BuiltinMemberIdentityAdapter
-import impl.MemberIdGenerator
 import neton.security.jwt.JwtAuthenticator
 
 import logic.*
@@ -26,7 +25,7 @@ object MemberRuntimeBootstrap {
         val jwt = ctx.get(JwtAuthenticator::class)
         val db = ctx.get(neton.database.api.DbContext::class)
         ctx.bindIfAbsent(MemberIdentityAdapter::class,
-            BuiltinMemberIdentityAdapter(jwt = jwt, idGenerator = MemberIdGenerator(), db = db))
+            BuiltinMemberIdentityAdapter(jwt = jwt, db = db))
         val identityAdapter = ctx.get(MemberIdentityAdapter::class)
 
         // 跨模块依赖（nullable: 对应模块未装配时降级）
