@@ -13,7 +13,7 @@ data class MemberTag(
     val id: Long = 0,
     val name: String,
     @CreatedAt
-    val createdAt: String? = null,
+    val createdAt: Long? = null,
     @UpdatedAt
-    val updatedAt: String? = null
+    val updatedAt: Long? = null
 )

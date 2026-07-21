@@ -11,5 +11,5 @@ data class AddressVO(
     val areaCode: String? = null,
     val detailAddress: String? = null,
     val defaultStatus: Int? = null,
-    val createdAt: String? = null
+    val createdAt: Long? = null
 )

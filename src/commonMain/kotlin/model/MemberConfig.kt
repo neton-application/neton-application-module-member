@@ -13,5 +13,5 @@ data class MemberConfig(
     val configKey: String,
     val value: String,
     @UpdatedAt
-    val updatedAt: String? = null
+    val updatedAt: Long? = null
 )

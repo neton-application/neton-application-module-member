@@ -10,5 +10,5 @@ data class MemberSignInRecordVO(
     val day: Int? = null,
     val point: Int? = null,
     val experience: Int? = null,
-    val createdAt: String? = null
+    val createdAt: Long? = null
 )

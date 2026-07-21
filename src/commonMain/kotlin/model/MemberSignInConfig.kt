@@ -21,7 +21,7 @@ data class MemberSignInConfig(
     val cashAmount: Long = 0,
     val status: Int = 1,
     @CreatedAt
-    val createdAt: String? = null,
+    val createdAt: Long? = null,
     @UpdatedAt
-    val updatedAt: String? = null
+    val updatedAt: Long? = null
 )

@@ -13,5 +13,5 @@ data class MemberPointRecordVO(
     val point: Int? = null,
     val totalPoint: Int? = null,
     val description: String? = null,
-    val createdAt: String? = null
+    val createdAt: Long? = null
 )

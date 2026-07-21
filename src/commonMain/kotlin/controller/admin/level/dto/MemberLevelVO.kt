@@ -15,7 +15,7 @@ data class MemberLevelVO(
     val discount: Int? = null,
     val icon: String? = null,
     val status: Int? = null,
-    val createdAt: String? = null
+    val createdAt: Long? = null
 )
 
 @Serializable

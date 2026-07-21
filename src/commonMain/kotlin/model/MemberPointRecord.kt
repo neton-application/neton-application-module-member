@@ -18,5 +18,5 @@ data class MemberPointRecord(
     val totalPoint: Int = 0,
     val description: String? = null,
     @CreatedAt
-    val createdAt: String? = null
+    val createdAt: Long? = null
 )

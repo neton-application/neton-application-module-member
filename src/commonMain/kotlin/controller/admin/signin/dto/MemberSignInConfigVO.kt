@@ -9,5 +9,5 @@ data class MemberSignInConfigVO(
     val point: Int? = null,
     val experience: Int? = null,
     val status: Int? = null,
-    val createdAt: String? = null
+    val createdAt: Long? = null
 )

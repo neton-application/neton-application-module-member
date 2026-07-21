@@ -16,5 +16,5 @@ data class MemberLevelRecord(
     val reason: String? = null,
     val description: String? = null,
     @CreatedAt
-    val createdAt: String? = null
+    val createdAt: Long? = null
 )
