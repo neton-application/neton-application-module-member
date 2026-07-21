@@ -99,8 +99,8 @@ class AuthController(
     }
 
     @Post("/logout")
-    suspend fun logout(userId: Long) {
-        memberAuthLogic.logout(userId)
+    suspend fun logout(identity: neton.core.interfaces.Identity) {
+        memberAuthLogic.logout(identity.id.toLong())
     }
 
     @Post("/refresh-token")

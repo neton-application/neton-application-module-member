@@ -3,6 +3,8 @@ package controller.app.point
 import logic.MemberPointLogic
 import neton.core.annotations.Controller
 import neton.core.annotations.Get
+import neton.core.annotations.Query
+import neton.core.interfaces.Identity
 
 @Controller("/member/point/record")
 class MemberPointRecordController(
@@ -11,10 +13,10 @@ class MemberPointRecordController(
 
     @Get("/page")
     suspend fun page(
-        userId: Long,
-        pageNo: Int = 1,
-        pageSize: Int = 10,
-        bizType: Int? = null,
-        title: String? = null
-    ) = memberPointLogic.pagePointRecords(pageNo, pageSize, userId, bizType, title)
+        identity: Identity,
+        @Query pageNo: Int = 1,
+        @Query pageSize: Int = 10,
+        @Query bizType: Int? = null,
+        @Query title: String? = null
+    ) = memberPointLogic.pagePointRecords(pageNo, pageSize, identity.id.toLong(), bizType, title)
 }

@@ -7,6 +7,8 @@ import controller.admin.signin.dto.MemberSignInSummaryVO
 import neton.core.annotations.Controller
 import neton.core.annotations.Get
 import neton.core.annotations.Post
+import neton.core.annotations.Query
+import neton.core.interfaces.Identity
 
 @Controller("/member/sign-in")
 class MemberSignInController(
@@ -19,19 +21,19 @@ class MemberSignInController(
     }
 
     @Get("/record/get-summary")
-    suspend fun getSummary(userId: Long): MemberSignInSummaryVO {
-        return memberSignInLogic.getSummary(userId)
+    suspend fun getSummary(identity: Identity): MemberSignInSummaryVO {
+        return memberSignInLogic.getSummary(identity.id.toLong())
     }
 
     @Post("/record/create")
-    suspend fun signIn(userId: Long): MemberSignInRecord {
-        return memberSignInLogic.signIn(userId)
+    suspend fun signIn(identity: Identity): MemberSignInRecord {
+        return memberSignInLogic.signIn(identity.id.toLong())
     }
 
     @Get("/record/page")
     suspend fun pageRecords(
-        userId: Long,
-        page: Int = 1,
-        size: Int = 10
-    ) = memberSignInLogic.pageRecords(page, size, userId)
+        identity: Identity,
+        @Query page: Int = 1,
+        @Query size: Int = 10
+    ) = memberSignInLogic.pageRecords(page, size, identity.id.toLong())
 }
