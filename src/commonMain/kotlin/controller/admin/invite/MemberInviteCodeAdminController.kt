@@ -35,6 +35,8 @@ class MemberInviteCodeAdminController(
         val status: Int = 1,
         val expiresAt: Long? = null,
         val remark: String? = null,
+        /** 绑码后邀请人自动发送的打招呼用语;空=用全局配置兜底。 */
+        val welcomeMessage: String? = null,
     )
 
     @Get("/list-all")
@@ -52,6 +54,7 @@ class MemberInviteCodeAdminController(
                 status = request.status,
                 expiresAt = request.expiresAt,
                 remark = request.remark,
+                welcomeMessage = request.welcomeMessage,
             ),
         )
 
@@ -67,6 +70,7 @@ class MemberInviteCodeAdminController(
                 status = request.status,
                 expiresAt = request.expiresAt,
                 remark = request.remark,
+                welcomeMessage = request.welcomeMessage,
             ),
         )
     }

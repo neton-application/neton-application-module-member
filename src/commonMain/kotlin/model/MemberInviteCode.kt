@@ -20,6 +20,8 @@ data class MemberInviteCode(
     /** ms;null=不过期 */
     val expiresAt: Long? = null,
     val remark: String? = null,
+    /** 绑码成功后邀请人自动发送的打招呼用语;空=用全局 conf invite_welcome_message 兜底。 */
+    val welcomeMessage: String? = null,
     val createdBy: Long = 0,
     val createdAt: Long = 0,
     val updatedAt: Long = 0,

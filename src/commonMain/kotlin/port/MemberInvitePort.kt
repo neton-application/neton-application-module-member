@@ -7,6 +7,15 @@ package port
  * 实现必须幂等:已是好友返回成功。
  */
 interface MemberInvitePort {
-    /** 成功正常返回;失败抛异常(调用方记录 FAILED,不回滚绑定——弱一致拍板 §2-6)。 */
-    suspend fun autoFriend(inviterUserId: Long, inviteeUserId: Long, code: String)
+    /**
+     * 成功正常返回;失败抛异常(调用方记录 FAILED,不回滚绑定——弱一致拍板 §2-6)。
+     * [welcomeMessage] 为该邀请码配置的打招呼用语(member 侧解析,adapter 不查表);
+     * null = 由实现方用全局配置兜底。
+     */
+    suspend fun autoFriend(
+        inviterUserId: Long,
+        inviteeUserId: Long,
+        code: String,
+        welcomeMessage: String? = null,
+    )
 }

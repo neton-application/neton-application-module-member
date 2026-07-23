@@ -108,7 +108,10 @@ class MemberInviteLogic(
         val inviter = record.inviterUserId
         if (inviter == null || invitePort == null) return // SKIPPED(默认 0)
         try {
-            invitePort.autoFriend(inviter, record.inviteeUserId, record.code)
+            // 码级打招呼用语:表是 member 的,由这里解析后传给 adapter(空白视同未配置)。
+            val welcome = MemberInviteCodeTable.get(record.codeId)
+                ?.welcomeMessage?.trim()?.takeIf { it.isNotEmpty() }
+            invitePort.autoFriend(inviter, record.inviteeUserId, record.code, welcome)
             MemberInviteRecordTable.update(record.copy(autoFriendStatus = 1, autoFriendError = null))
             log.info("member.invite.auto_friend.success", mapOf("recordId" to recordId))
         } catch (e: Exception) {
@@ -229,6 +232,7 @@ class MemberInviteLogic(
                 status = input.status,
                 expiresAt = input.expiresAt,
                 remark = input.remark,
+                welcomeMessage = input.welcomeMessage,
                 updatedAt = Clock.System.now().toEpochMilliseconds(),
             ),
         )
