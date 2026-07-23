@@ -43,6 +43,11 @@ class MemberInviteCodeAdminController(
     @Permission("member:invite-code:query")
     suspend fun listAll(): List<MemberInviteCode> = inviteLogic.listAll()
 
+    /** 编辑弹窗打开时实时拉取(不信任列表快照,避免改后回填旧值)。 */
+    @Get("/detail/{id}")
+    @Permission("member:invite-code:query")
+    suspend fun detail(@PathVariable id: Long): MemberInviteCode? = inviteLogic.adminGet(id)
+
     @Post("/create")
     @Permission("member:invite-code:create")
     suspend fun create(@Body request: SaveInviteCodeRequest): MemberInviteCode =

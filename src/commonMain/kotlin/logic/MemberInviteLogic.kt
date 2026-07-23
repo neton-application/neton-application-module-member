@@ -238,6 +238,8 @@ class MemberInviteLogic(
         )
     }
 
+    suspend fun adminGet(id: Long): MemberInviteCode? = MemberInviteCodeTable.get(id)
+
     suspend fun adminDelete(id: Long) {
         MemberInviteCodeTable.destroy(id)
     }
