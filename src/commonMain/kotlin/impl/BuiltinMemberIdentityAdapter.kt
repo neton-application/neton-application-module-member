@@ -10,6 +10,8 @@ import port.MemberIdentityProvider
 import port.MemberPasswordChangedEvent
 import port.MemberTokenBundle
 import port.RefreshMemberTokenCommand
+import neton.core.http.HttpException
+import neton.core.http.NetonErrorCode
 import neton.database.api.DbContext
 import neton.database.dsl.*
 import neton.security.identity.UserId
@@ -67,18 +69,30 @@ class BuiltinMemberIdentityAdapter(
         return buildBundle(command.memberId, deviceId, sessionVersion, deviceCreated = command.deviceId.isNullOrBlank())
     }
 
+    /**
+     * 刷新令牌。失效原因（签名坏 / 类型不对 / 主体缺失 / session_version 已 bump）在语义上
+     * 都是 **401 需要重新登录**。此前抛裸 [IllegalArgumentException] → HTTP 500，客户端
+     * 不会清理会话、不会重新登录，只会带着废 token 继续重试。
+     *
+     * 注意：只把**已识别**的失效原因映射成 401，其它异常照旧上抛为 500，
+     * 不做「IllegalArgumentException 一律 400/401」的全局降级（会掩盖真实故障）。
+     */
     override suspend fun refreshToken(command: RefreshMemberTokenCommand): MemberTokenBundle {
         val verified = try {
             jwt.verifyToken(command.refreshToken)
         } catch (e: Exception) {
-            throw IllegalArgumentException("invalid refresh token")
+            throw HttpException(NetonErrorCode.INVALID_TOKEN, "INVALID_REFRESH_TOKEN")
         }
-        if (verified.claimString("type") != "refresh") throw IllegalArgumentException("not a refresh token")
+        if (verified.claimString("type") != "refresh") {
+            throw HttpException(NetonErrorCode.INVALID_TOKEN, "NOT_A_REFRESH_TOKEN")
+        }
         val memberId = verified.claimString("sub")?.toLongOrNull()
-            ?: throw IllegalArgumentException("invalid refresh token subject")
+            ?: throw HttpException(NetonErrorCode.INVALID_TOKEN, "INVALID_REFRESH_TOKEN_SUBJECT")
         val sessionVersion = MemberTable.get(memberId)?.sessionVersion ?: 0L
         val tokenSid = verified.claimString("sid")?.toLongOrNull() ?: 0L
-        if (tokenSid != sessionVersion) throw IllegalArgumentException("session expired")
+        if (tokenSid != sessionVersion) {
+            throw HttpException(NetonErrorCode.REFRESH_TOKEN_EXPIRED, "REFRESH_TOKEN_EXPIRED")
+        }
         val deviceId = command.deviceId?.takeIf { it.isNotBlank() } ?: mintDeviceId()
         return buildBundle(memberId, deviceId, sessionVersion, deviceCreated = false)
     }
