@@ -9,6 +9,7 @@ import table.MemberLevelRecordTable
 import table.MemberPointRecordTable
 import neton.database.dsl.*
 import neton.database.api.DbContext
+import neton.security.password.PasswordHasher
 
 import neton.logging.Logger
 
@@ -54,6 +55,17 @@ class MemberLogic(
     suspend fun update(member: Member) {
         MemberTable.update(member)
         log.info("Updated member: id=${member.id}")
+    }
+
+    /**
+     * 管理员重设会员登录密码。明文只在此方法内经 [PasswordHasher] 加盐哈希后落库，
+     * 不写日志、不回传（日志只记 userId）。与注册/登录同一套哈希，改完即可用新密码登录。
+     */
+    suspend fun updatePassword(userId: Long, rawPassword: String) {
+        val member = MemberTable.get(userId)
+            ?: throw IllegalArgumentException("Member not found: $userId")
+        MemberTable.update(member.copy(password = PasswordHasher.hash(rawPassword)))
+        log.info("Updated member password: userId=$userId")
     }
 
     suspend fun updateLevel(userId: Long, levelId: Long, level: Int, reason: String?) {

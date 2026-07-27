@@ -4,6 +4,7 @@ import controller.admin.member.dto.FillBotNicknamesResponse
 import controller.admin.member.dto.MemberVO
 import controller.admin.member.dto.UpdateMemberRequest
 import controller.admin.member.dto.UpdateMemberUserLevelRequest
+import controller.admin.member.dto.UpdateMemberUserPasswordRequest
 import controller.admin.member.dto.UpdateMemberUserPointRequest
 import dto.PageResponse
 import logic.MemberLogic
@@ -53,6 +54,22 @@ class MemberUserController(
     @Permission("member:user:update")
     suspend fun updatePoint(@Body req: UpdateMemberUserPointRequest) {
         memberLogic.updatePoint(req.id, req.point, 1, "Admin adjust", null)
+    }
+
+    /**
+     * 管理员重设会员登录密码（客服/找回场景）。不需要旧密码，也不返回任何密码信息；
+     * 明文经 PasswordHasher 加盐哈希后落库，改完会员即可用新密码登录。
+     * 单独权限点 `member:user:update-password`——重设密码等于接管账号，不能和普通编辑同权。
+     */
+    @Put("/update-password")
+    @Permission("member:user:update-password")
+    suspend fun updatePassword(@Body req: UpdateMemberUserPasswordRequest) {
+        // @Size 之外再显式挡一次：空串/纯空格在部分校验实现下会漏过（历史坑）。
+        val password = req.password.trim()
+        if (password.length < 8) {
+            throw IllegalArgumentException("Password must be at least 8 characters")
+        }
+        memberLogic.updatePassword(req.id, password)
     }
 
     @Get("/get/{id}")
