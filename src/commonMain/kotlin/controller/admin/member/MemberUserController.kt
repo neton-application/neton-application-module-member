@@ -85,32 +85,41 @@ class MemberUserController(
         @Query pageSize: Int = 10,
         @Query nickname: String? = null,
         @Query mobile: String? = null,
-        @Query uid: Long? = null,
+        // uid 收字符串自己解析，不声明成 Long?：框架的 parseLong 对 "" 和 "abc"
+        // 一律返回 null，声明成 Long? 就分不清「没填」和「填了但不是数字」，
+        // 后者会静默丢掉筛选条件、把全部用户列出来，看着像是「什么都能匹配」。
+        @Query uid: String? = null,
         @Query username: String? = null,
         @Query status: Int? = null,
         @Query levelId: Long? = null,
         @Query groupId: Long? = null,
         // 默认隐藏陪玩机器人；admin 需要时 ?includeRobot=true。
         @Query includeRobot: Boolean = false
-    ): PageResponse<MemberVO> = memberLogic.page(
+    ): PageResponse<MemberVO> {
+        val uidText = uid?.trim().orEmpty()
+        val uidValue = if (uidText.isEmpty()) null else uidText.toLongOrNull()
+            ?: return PageResponse(emptyList(), 0, pageNo, pageSize, 0)
+
+        return memberLogic.page(
         pageNo,
         pageSize,
         nickname,
         mobile,
-        uid,
+        uidValue,
         username,
         status,
         levelId,
         groupId,
         includeRobot,
-    ).let { page ->
-        PageResponse(
-            list = page.list.map { it.toAdminVO() },
-            total = page.total,
-            page = page.page,
-            size = page.size,
-            totalPages = page.totalPages,
-        )
+        ).let { page ->
+            PageResponse(
+                list = page.list.map { it.toAdminVO() },
+                total = page.total,
+                page = page.page,
+                size = page.size,
+                totalPages = page.totalPages,
+            )
+        }
     }
 
     private fun Member.toAdminVO() = MemberVO(
