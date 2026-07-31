@@ -24,6 +24,11 @@ class MemberLogic(
         size: Int,
         nickname: String? = null,
         mobile: String? = null,
+        /** 用户编号。数字主键做精确匹配，不做 `%x%`：中间匹配用不上主键索引，
+         *  语义也怪——搜 "123" 会把 100001230 和 100012345 一起捞出来，
+         *  而运营手里的 uid 从来都是完整的。非数字输入直接返回空结果。 */
+        uid: Long? = null,
+        username: String? = null,
         status: Int? = null,
         levelId: Long? = null,
         groupId: Long? = null,
@@ -35,6 +40,8 @@ class MemberLogic(
                 and(
                     whenNotBlank(nickname) { Member::nickname like "%$it%" },
                     whenNotBlank(mobile) { Member::mobile like "%$it%" },
+                    whenNotBlank(username) { Member::username like "%$it%" },
+                    whenPresent(uid) { Member::id eq it },
                     whenPresent(status) { Member::status eq it },
                     whenPresent(levelId) { Member::levelId eq it },
                     whenPresent(groupId) { Member::groupId eq it },
