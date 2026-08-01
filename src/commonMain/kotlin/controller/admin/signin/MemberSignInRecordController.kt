@@ -16,6 +16,7 @@ class MemberSignInRecordController(
     suspend fun page(
         pageNo: Int = 1,
         pageSize: Int = 10,
-        userId: Long? = null
-    ) = memberSignInLogic.pageRecords(pageNo, pageSize, userId)
+        userId: Long? = null,
+        day: Int? = null
+    ) = memberSignInLogic.pageRecords(pageNo, pageSize, userId, day)
 }

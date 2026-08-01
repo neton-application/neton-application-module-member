@@ -9,6 +9,7 @@ import table.MemberTable
 import table.MemberSignInConfigTable
 import table.MemberSignInRecordTable
 import table.MemberPointRecordTable
+import controller.admin.signin.dto.MemberSignInRecordVO
 import controller.admin.signin.dto.MemberSignInSummaryVO
 import neton.database.dsl.*
 import neton.database.api.DbContext
@@ -155,18 +156,53 @@ class MemberSignInLogic(
         }
     }
 
+    /**
+     * 签到记录分页。返回 VO 而不是裸实体：实体里只有 userId，列表要显示的是人名，
+     * 每行再让前端去查一次用户就成了 N+1。
+     *
+     * 昵称按本页出现的 userId 去重后一次性取回，所以补昵称是固定一条查询，与页大小无关。
+     */
     suspend fun pageRecords(
         page: Int,
         size: Int,
-        userId: Long? = null
-    ): PageResponse<MemberSignInRecord> {
+        userId: Long? = null,
+        day: Int? = null
+    ): PageResponse<MemberSignInRecordVO> {
         val result = MemberSignInRecordTable.query {
             where {
-                whenPresent(userId) { MemberSignInRecord::userId eq it }
+                and(
+                    whenPresent(userId) { MemberSignInRecord::userId eq it },
+                    whenPresent(day) { MemberSignInRecord::day eq it },
+                )
             }
             orderBy(MemberSignInRecord::id.desc())
         }.page(page, size)
-        return PageResponse(result.items, result.total, page, size,
+
+        val nicknames: Map<Long, String> = result.items
+            .map { it.userId }
+            .distinct()
+            .takeIf { it.isNotEmpty() }
+            ?.let { ids ->
+                MemberTable.query { where { Member::id `in` ids } }
+                    .list()
+                    .associate { it.id to it.nickname }
+            }
+            ?: emptyMap()
+
+        val list = result.items.map { record ->
+            MemberSignInRecordVO(
+                id = record.id,
+                userId = record.userId,
+                nickname = nicknames[record.userId],
+                day = record.day,
+                point = record.point,
+                experience = record.experience,
+                cashAmount = record.cashAmount,
+                createdAt = record.createdAt,
+            )
+        }
+
+        return PageResponse(list, result.total, page, size,
             if (size > 0) ((result.total + size - 1) / size).toInt() else 0)
     }
 
