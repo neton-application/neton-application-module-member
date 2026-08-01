@@ -98,10 +98,9 @@ class BuiltinMemberIdentityAdapter(
     }
 
     override suspend fun onPasswordChanged(event: MemberPasswordChangedEvent) {
-        db.execute(
-            "UPDATE member_users SET session_version = session_version + 1 WHERE id = :id",
-            mapOf("id" to event.memberId),
-        )
+        // 原子自增，不能读出来再写回去：并发改密会互相覆盖，旧 token 就失效不掉
+        MemberTable.query { where { Member::id eq event.memberId } }
+            .update { increment(Member::sessionVersion) }
     }
 
     private fun buildBundle(
