@@ -21,16 +21,17 @@ internal suspend fun insertMemberWithProvidedId(member: Member): Member {
         INSERT INTO member_users (
             id, mobile, password, username, username_updated_at, nickname, avatar, status,
             level_id, experience, point, group_id,
-            register_ip, login_ip, login_date, deleted,
+            register_ip, login_ip, login_date, deleted, is_guest,
             created_at, updated_at
         ) VALUES (
             :id, :mobile, :password, :username, :usernameUpdatedAt, :nickname, :avatar, :status,
             :levelId, :experience, :point, :groupId,
-            :registerIp, :loginIp, :loginDate, :deleted,
+            :registerIp, :loginIp, :loginDate, :deleted, :isGuest,
             :createdAt, :updatedAt
         )
     """.trimIndent()
     val stmt = Statement.create(sql)
+        .bind("isGuest", member.isGuest)
         .bind("id", member.id)
         .bind("mobile", member.mobile)
         .bind("password", member.password)

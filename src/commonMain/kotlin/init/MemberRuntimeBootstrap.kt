@@ -48,6 +48,12 @@ object MemberRuntimeBootstrap {
         // inviteCodeRequired 走登录后 required-actions gate(bind_invite_code),不再在注册期拦截
         val requiredActionsLogic = RequiredActionsLogic(memberLogic, authPolicy, inviteLogic)
         ctx.bind(RequiredActionsLogic::class, requiredActionsLogic)
+        // 游客开通：依赖 identityAdapter，所以不能用 @Logic（KSP 顺序是 logics 早于 bootstrap）
+        ctx.bind(MemberGuestLogic::class, MemberGuestLogic(
+            log = loggerFactory.get("logic.member.guest"),
+            db = ctx.get(neton.database.api.DbContext::class),
+            identityAdapter = identityAdapter,
+        ))
         ctx.bind(MemberAuthLogic::class, MemberAuthLogic(
             log = loggerFactory.get("logic.member-auth"),
             identityAdapter = identityAdapter,
