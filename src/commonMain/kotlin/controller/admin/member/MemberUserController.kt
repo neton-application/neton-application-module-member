@@ -94,7 +94,9 @@ class MemberUserController(
         @Query levelId: Long? = null,
         @Query groupId: Long? = null,
         // 默认隐藏陪玩机器人；admin 需要时 ?includeRobot=true。
-        @Query includeRobot: Boolean = false
+        @Query includeRobot: Boolean = false,
+        // 默认隐藏无凭证游客（客服 widget 访客等）；admin 需要时 ?includeGuest=true。
+        @Query includeGuest: Boolean = false
     ): PageResponse<MemberVO> {
         val uidText = uid?.trim().orEmpty()
         val uidValue = if (uidText.isEmpty()) null else uidText.toLongOrNull()
@@ -111,6 +113,7 @@ class MemberUserController(
         levelId,
         groupId,
         includeRobot,
+        includeGuest,
         ).let { page ->
             PageResponse(
                 list = page.list.map { it.toAdminVO() },
@@ -134,6 +137,7 @@ class MemberUserController(
         bio = bio,
         birthday = birthday,
         isRobot = isRobot,
+        isGuest = isGuest,
         status = status,
         levelId = levelId,
         experience = experience,

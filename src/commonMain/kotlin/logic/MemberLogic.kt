@@ -34,7 +34,9 @@ class MemberLogic(
         levelId: Long? = null,
         groupId: Long? = null,
         // 默认隐藏系统生成的陪玩机器人(is_robot=1)；admin 需查看时传 includeRobot=true。
-        includeRobot: Boolean = false
+        includeRobot: Boolean = false,
+        // 默认隐藏无凭证游客(is_guest=1，如客服 widget 访客)；admin 需查看时传 includeGuest=true。
+        includeGuest: Boolean = false
     ): PageResponse<Member> {
         val result = MemberTable.query {
             where {
@@ -47,7 +49,8 @@ class MemberLogic(
                     whenPresent(levelId) { Member::levelId eq it },
                     whenPresent(groupId) { Member::groupId eq it },
                     // includeRobot=false → 过滤 is_robot=0；true → 传 null 跳过该条件。
-                    whenPresent(if (includeRobot) null else 0) { Member::isRobot eq it }
+                    whenPresent(if (includeRobot) null else 0) { Member::isRobot eq it },
+                    whenPresent(if (includeGuest) null else 0) { Member::isGuest eq it }
                 )
             }
             orderBy(Member::id.desc())

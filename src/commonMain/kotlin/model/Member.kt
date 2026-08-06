@@ -39,6 +39,11 @@ data class Member(
     /** 1=系统生成的陪玩机器人账号，默认不进普通会员列表/积分/每日统计；与
      *  game_club_member.is_auto_player(club-scoped) 正交。spec GAME_CLUB_ROOM_TEMPLATE_SPEC。 */
     val isRobot: Int = 0,
+    /** 1=无凭证的游客账号（客服 widget 访客、游戏游客登录、试用账号），默认不进普通会员
+     *  列表/积分/每日统计；与 [isRobot] 正交 —— 机器人不是游客，游客也不是机器人。
+     *  绑定凭证即升级为正式会员：同一行清零本列，id 不变，IM 身份与历史原样保留。
+     *  spec CUSTOMER_SERVICE_PLATFORM_SPEC §3.2。 */
+    val isGuest: Int = 0,
     /** 会话版本；改密/登出全端时递增，builtin token 携带并校验（MEMBER-IDENTITY §会话）。 */
     val sessionVersion: Long = 0,
     @SoftDelete

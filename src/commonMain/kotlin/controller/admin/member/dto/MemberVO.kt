@@ -20,6 +20,7 @@ data class MemberVO(
     val bio: String? = null,
     val birthday: String? = null,
     val isRobot: Int = 0,
+    val isGuest: Int = 0,
     val status: Int? = null,
     val levelId: Long? = null,
     val levelName: String? = null,
