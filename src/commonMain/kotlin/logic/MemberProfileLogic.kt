@@ -9,6 +9,9 @@ import neton.core.http.NotFoundException
 import neton.logging.Logger
 import logic.FileUploadLogic
 import port.MemberIdentityAdapter
+import port.MemberMobileChangedEvent
+import table.MemberTable
+import neton.database.dsl.*
 import port.MemberProfileChangedEvent
 
 /**
@@ -36,6 +39,42 @@ class MemberProfileLogic(
         val updated = member.copy(nickname = trimmed)
         memberLogic.update(updated)
         publishProfileChanged(updated, setOf("nickname"))
+        return updated
+    }
+
+    /**
+     * 注册流程里的手机号绑定：**只查重，不做短信验证**（产品决定）。
+     *
+     * 与 [controller.app.member.MemberUserController.updateMobile] 的区别要说清楚，两者不能
+     * 互相替代：那条是**改绑**（换号），必须验证码证明新号在你手上；这条是注册流程里的**首次
+     * 绑定**，用户还没进主功能，走短信会把注册流程拦腰截断。
+     *
+     * 号码格式不校验：产品明确要求随意输入即可。因此这里的查重只保证「一个号对应一个账号」，
+     * **保证不了「这个号真属于填它的人」**——未验证的号同样能用于短信登录，也就是说填了别人
+     * 号码的账号，会被那个号的真实持有人登进来。这是已知且被接受的取舍。
+     *
+     * 只允许在还没绑过的时候调用：已绑定的改号必须走带验证码的改绑路径，否则这个免验证入口
+     * 就成了绕过验证换号的后门。
+     */
+    suspend fun bindMobileWithoutVerification(uid: Long, mobile: String): Member {
+        val trimmed = mobile.trim()
+        if (trimmed.isEmpty()) {
+            throw BadRequestException("INVALID_MOBILE")
+        }
+        val member = requireMember(uid)
+        if (!member.mobile.isNullOrBlank()) {
+            throw BadRequestException("MOBILE_ALREADY_BOUND")
+        }
+        val occupied = MemberTable.oneWhere { Member::mobile eq trimmed }
+        if (occupied != null && occupied.id != uid) {
+            throw BadRequestException("MOBILE_ALREADY_TAKEN")
+        }
+        val updated = member.copy(mobile = trimmed)
+        memberLogic.update(updated)
+        identityAdapter?.onMobileChanged(
+            MemberMobileChangedEvent(memberId = uid, newMobile = trimmed, oldMobile = member.mobile),
+        )
+        publishProfileChanged(updated, setOf("mobile"))
         return updated
     }
 

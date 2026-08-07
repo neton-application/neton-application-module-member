@@ -2,6 +2,7 @@ package controller.app.required_actions
 
 import controller.app.auth.dto.RequiredAction
 import kotlinx.serialization.Serializable
+import logic.MemberProfileLogic
 import logic.RequiredActionsLogic
 import neton.core.annotations.*
 import neton.core.interfaces.Identity
@@ -16,6 +17,12 @@ import neton.core.interfaces.Identity
 @Serializable
 data class RequiredActionsResponse(
     val requiredActions: List<RequiredAction>,
+)
+
+/** `POST /app/account/bind-mobile` 请求体。 */
+@Serializable
+data class BindMobileRequest(
+    val mobile: String,
 )
 
 /**
@@ -39,6 +46,7 @@ data class RequiredActionsResponse(
 @Controller("/account")
 class RequiredActionsController(
     private val requiredActionsLogic: RequiredActionsLogic,
+    private val memberProfileLogic: MemberProfileLogic,
 ) {
 
     /**
@@ -55,5 +63,22 @@ class RequiredActionsController(
         val uid = identity.id.toLong()
         val actions = requiredActionsLogic.computeForUid(uid)
         return RequiredActionsResponse(requiredActions = actions)
+    }
+
+    /**
+     * 注册流程里的手机号绑定（`bind_mobile` action 的提交端点）。
+     *
+     * **不发也不校验短信验证码**：这是注册流程中的首次绑定，插一次短信会把流程拦腰截断。
+     * 换号走 `PUT /app/member/user/update-mobile`，那条仍然要验证码——免验证入口只开给
+     * 「还没绑过」的情况，否则它就成了绕过验证换号的后门（校验在
+     * [MemberProfileLogic.bindMobileWithoutVerification] 里）。
+     *
+     * 完成后客户端必须重新拉 [listRequiredActions] 取权威列表，不要自己把这一项划掉。
+     */
+    @Post("/bind-mobile")
+    suspend fun bindMobile(identity: Identity, @Body request: BindMobileRequest): RequiredActionsResponse {
+        val uid = identity.id.toLong()
+        memberProfileLogic.bindMobileWithoutVerification(uid, request.mobile)
+        return RequiredActionsResponse(requiredActions = requiredActionsLogic.computeForUid(uid))
     }
 }

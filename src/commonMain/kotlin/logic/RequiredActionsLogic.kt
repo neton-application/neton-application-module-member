@@ -27,14 +27,44 @@ class RequiredActionsLogic(
     private val inviteLogic: MemberInviteLogic? = null,
 ) {
 
-    /** uid 入口：先取 member，未找到的兜底空数组（不抛错，不让登录失败）。 */
+    /**
+     * uid 入口：先取 member，未找到的兜底空数组（不抛错，不让登录失败）。
+     *
+     * **列表顺序就是用户看到的补全顺序**：绑定手机号 → 填写邀请码 → 设置昵称。客户端按数组
+     * 次序逐个处理，所以这里的先后不是随意排的。
+     */
     suspend fun computeForUid(uid: Long): List<RequiredAction> {
         val member = memberLogic.get(uid) ?: return emptyList()
-        val actions = computeForMember(member).toMutableList()
+        val actions = mutableListOf<RequiredAction>()
+
+        // 手机号**推荐**补全：与邀请码同构地在登录后下发，但不阻断（见下方 required=false）。
+        // 绑定不做短信验证（产品决定），所以这里只判断"有没有填"，不判断"验没验证过"。
+        if (authPolicy.mobileRequired &&
+            isAnchorHit(member, authPolicy.mobileRequiredSince) &&
+            member.mobile.isNullOrBlank()
+        ) {
+            actions += RequiredAction(
+                action = "bind_mobile",
+                // **推荐而非强制**：required=false 的语义是「认识它的客户端展示并允许跳过，
+                // 不认识的静默略过」（契约 §4.3）。
+                //
+                // 设成 true 的后果实测过：旧版 App 遇到不认识的 required action 会 fail-closed
+                // 停在「需要更新客户端」页，进不了主界面。开关一开，**所有没绑手机号的存量
+                // 用户下次登录全被拦住**——生产 2102 个账号里只有 11 个填了手机号。
+                //
+                // 推荐式绑定没有这个问题：老客户端当它不存在，新客户端引导但不阻断，
+                // 服务端也就不必依赖「先发版再开开关」这种靠人记住的上线顺序。
+                required = false,
+                title = "绑定手机号",
+                titleKey = "requiredAction.bindMobile",
+                fields = listOf("mobile"),
+            )
+        }
+
         // 邀请码强制补全(MEMBER_INVITE_CODE §5.0 v2):inviteCodeRequired 不再在
         // 注册期拦截，改为登录后 gate —— 已绑定的用户(含存量)永不触发。
         if (authPolicy.inviteCodeRequired && inviteLogic != null &&
-            isInviteAnchorHit(member) && inviteLogic.myBinding(member.id) == null
+            isAnchorHit(member, authPolicy.inviteCodeRequiredSince) && inviteLogic.myBinding(member.id) == null
         ) {
             actions += RequiredAction(
                 action = "bind_invite_code",
@@ -44,16 +74,20 @@ class RequiredActionsLogic(
                 fields = listOf("inviteCode"),
             )
         }
+
+        // 昵称排最后：前两步都是"这个账号属于谁"，昵称是展示层，先确权再取名。
+        actions += computeForMember(member)
         return actions
     }
 
     /**
-     * inviteCodeRequiredSince 时间锚:未配置 → 约束所有未绑定用户;配置后只 gate
-     * 锚点之后注册的账号(存量豁免)。createdAt 缺失的异常数据按存量对待(不 gate,
-     * 避免把老账号锁在补全页)。
+     * 时间锚:未配置 → 约束所有未绑定用户;配置后只 gate 锚点之后注册的账号(存量豁免)。
+     * createdAt 缺失的异常数据按存量对待(不 gate,避免把老账号锁在补全页)。
+     *
+     * 邀请码和手机号共用这套判定——两者的存量豁免语义完全一样,没有理由写两遍。
      */
-    private fun isInviteAnchorHit(member: Member): Boolean {
-        val since = authPolicy.inviteCodeRequiredSince?.trim().takeUnless { it.isNullOrEmpty() } ?: return true
+    private fun isAnchorHit(member: Member, since: String?): Boolean {
+        val since = since?.trim().takeUnless { it.isNullOrEmpty() } ?: return true
         val created = member.createdAt ?: return false
         val sinceEpoch = since.toLongOrNull()
             ?: runCatching { Instant.parse(since).toEpochMilliseconds() }.getOrNull()

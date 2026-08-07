@@ -17,6 +17,17 @@ data class MemberAuthPolicy(
      */
     val inviteCodeRequiredSince: String? = null,
     val nicknameRequired: Boolean = false,
+    /**
+     * 是否在登录后**提示**绑定手机号。名字沿用 `xxxRequired` 是为了跟同族配置一致，但语义是
+     * **推荐不是强制**：下发的 action 带 `required=false`，客户端引导但允许跳过，旧客户端静默
+     * 略过（见 [RequiredActionsLogic.computeForUid] 里的原因）。已绑定的用户永不触发。
+     *
+     * 绑定**不做短信验证**（产品决定）：只查重 + 落库。未验证的号码同样可用于短信登录，
+     * 也就是说查重只能保证「一个号对应一个账号」，保证不了「这个号真属于填它的人」。
+     */
+    val mobileRequired: Boolean = false,
+    /** 手机号强制的注册时间锚，语义同 [inviteCodeRequiredSince]。 */
+    val mobileRequiredSince: String? = null,
 ) {
     companion object {
         const val MODE_PHONE_SMS = "PHONE_SMS"
