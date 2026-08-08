@@ -29,11 +29,56 @@ class MemberSignInLogic(
      * `cashAmount > 0` 的签到在事务内经此发放现金；未装配时配置了现金即签到失败（防静默不发）。
      */
     private val rewardPort: port.MemberRewardPort? = null,
+    /**
+     * 全局设置读取端口（可空）：装配后「连续签到周期」可在后台调整；
+     * 未装配时一律用 [config.MemberConfigKeys.SIGN_IN_CYCLE_DAYS_DEFAULT]。
+     */
+    private val configs: logic.SystemConfigLogic? = null,
 ) {
+
+    /**
+     * 当前生效的连续签到周期（天）。
+     *
+     * 默认值与越界回退由配置定义本身保证（[MemberConfigKeys.SIGN_IN_CYCLE_DAYS] 声明了
+     * `min=1, max=365`），所以这里不再重复防御——读到的一定是可用的正整数，
+     * `% cycleDays` 不会除零。
+     *
+     * `configs` 为空只发生在未装配 system 的测试装配里，此时用定义的默认值。
+     */
+    private suspend fun cycleDays(): Int =
+        configs?.get(config.MemberConfigKeys.SIGN_IN_CYCLE_DAYS)
+            ?: config.MemberConfigKeys.SIGN_IN_CYCLE_DAYS.default
 
     // --- Sign-in config CRUD (admin) ---
 
+    /**
+     * 保存前的公共校验。
+     *
+     * 两条都是「配了也永远不会生效」的情况，不拦住的话运营配完看不出任何异常，
+     * 只有用户签到时才发现奖励不对：
+     *
+     * - `day` 超出周期：签到取的是 `(连续天数 % 周期) + 1`，落不到这一天上。
+     * - `day` 重复：命中用的是 `oneWhere`，两条同 day 且启用时取哪条是不确定的
+     *   （生产上出过一条 10 元、一条 0 分共存，第 7 天发多少全看运气）。
+     */
+    private suspend fun validateConfig(config: MemberSignInConfig, excludeId: Long?) {
+        val cycle = cycleDays()
+        if (config.day !in 1..cycle) {
+            throw BadRequestException(
+                "签到天数必须在 1..$cycle 之间（当前连续签到周期为 $cycle 天）"
+            )
+        }
+        val duplicated = MemberSignInConfigTable
+            .query { where { MemberSignInConfig::day eq config.day } }
+            .list()
+            .any { row -> row.id != excludeId }
+        if (duplicated) {
+            throw BadRequestException("第 ${config.day} 天已存在配置，请勿重复添加")
+        }
+    }
+
     suspend fun createConfig(config: MemberSignInConfig): Long {
+        validateConfig(config, excludeId = null)
         val inserted = MemberSignInConfigTable.insert(config)
         log.info("Created sign-in config: id=${inserted.id}, day=${config.day}")
         return inserted.id
@@ -42,6 +87,7 @@ class MemberSignInLogic(
     suspend fun updateConfig(config: MemberSignInConfig) {
         val existing = MemberSignInConfigTable.get(config.id)
             ?: throw BadRequestException("Sign-in config not found: id=${config.id}")
+        validateConfig(config, excludeId = config.id)
         // 全列 update：请求构造的 config 不带时间戳，必须保留原行 created_at，
         // 否则写 null 触发 23502 非空约束（与 MenuLogic.update 同款修复）。
         MemberSignInConfigTable.update(
@@ -77,7 +123,13 @@ class MemberSignInLogic(
             throw BadRequestException("Already signed in today")
         }
 
-        val nextDay = summary.continuousDay + 1
+        // 周期循环：第 N+1 天回到第 1 天。
+        //
+        // 取模而不是无限递增——原先 nextDay 一直往上涨，配置只到第 N 天，于是第 N+1 天起
+        // 查不到配置、奖励恒为 0，用户只能靠**故意断签**把连续天数清零才能重新拿奖励，
+        // 这跟签到想要的每日活跃恰好相反。
+        val cycle = cycleDays()
+        val nextDay = (summary.continuousDay % cycle) + 1
 
         // Find matching config for the day
         val config = MemberSignInConfigTable.oneWhere {
