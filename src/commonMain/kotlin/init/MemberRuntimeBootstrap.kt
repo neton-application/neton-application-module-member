@@ -50,7 +50,7 @@ object MemberRuntimeBootstrap {
         ctx.bind(RequiredActionsLogic::class, requiredActionsLogic)
         // 游客开通：依赖 identityAdapter，所以不能用 @Logic（KSP 顺序是 logics 早于 bootstrap）
         // 把本模块的配置定义登记进注册表。各模块各自登记，装配层不必知道谁有哪些配置。
-        ctx.getOrNull(config.ConfigDefinitionRegistry::class)?.register(config.MemberConfigKeys.definitions)
+        ctx.getOrNull(setting.SettingDefinitionRegistry::class)?.register(setting.MemberSettingKeys.definitions)
 
         ctx.bind(MemberGuestLogic::class, MemberGuestLogic(
             log = loggerFactory.get("logic.member.guest"),
@@ -83,7 +83,7 @@ object MemberRuntimeBootstrap {
             rewardPort = ctx.getOrNull(port.MemberRewardPort::class),
             // 全局设置读取（连续签到周期）。未装配 = 用代码默认值，签到照常工作，
             // 只是不能在后台调周期。
-            configs = ctx.getOrNull(logic.SystemConfigLogic::class),
+            configs = ctx.getOrNull(logic.SystemSettingLogic::class),
         ))
     }
 }

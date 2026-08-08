@@ -1,12 +1,12 @@
-package config
+package setting
 
 /**
  * member 模块的全局配置定义（SYSTEM_CONFIG_SPEC）。
  *
  * 配置归 `module-system`，而 member 本来就依赖 system，所以这里直接用类型化的
- * [ConfigDefinition]，读取方拿定义去读即可 —— 不再需要中间的端口与适配器。
+ * [SettingDefinition]，读取方拿定义去读即可 —— 不再需要中间的端口与适配器。
  */
-object MemberConfigKeys {
+object MemberSettingKeys {
 
     const val CATEGORY = "member"
 
@@ -17,7 +17,7 @@ object MemberConfigKeys {
      * 上限 365 与签到配置 `day` 的 `@Max(365)` 对齐：超出周期的配置永远命中不了，
      * 与其让人配了不生效，不如在写入时就挡掉。
      */
-    val SIGN_IN_CYCLE_DAYS: ConfigDefinition<Int> = ConfigDefinition.int(
+    val SIGN_IN_CYCLE_DAYS: SettingDefinition<Int> = SettingDefinition.int(
         category = CATEGORY,
         key = "member.signin.cycle_days",
         default = 30,
@@ -27,6 +27,6 @@ object MemberConfigKeys {
         max = 365,
     )
 
-    /** 交给装配层聚合进 `ConfigDefinitionRegistry`。 */
-    val definitions: List<ConfigDefinition<*>> = listOf(SIGN_IN_CYCLE_DAYS)
+    /** 交给装配层聚合进 `SettingDefinitionRegistry`。 */
+    val definitions: List<SettingDefinition<*>> = listOf(SIGN_IN_CYCLE_DAYS)
 }

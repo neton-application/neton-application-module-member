@@ -31,23 +31,23 @@ class MemberSignInLogic(
     private val rewardPort: port.MemberRewardPort? = null,
     /**
      * 全局设置读取端口（可空）：装配后「连续签到周期」可在后台调整；
-     * 未装配时一律用 [config.MemberConfigKeys.SIGN_IN_CYCLE_DAYS_DEFAULT]。
+     * 未装配时一律用 [setting.MemberSettingKeys.SIGN_IN_CYCLE_DAYS_DEFAULT]。
      */
-    private val configs: logic.SystemConfigLogic? = null,
+    private val configs: logic.SystemSettingLogic? = null,
 ) {
 
     /**
      * 当前生效的连续签到周期（天）。
      *
-     * 默认值与越界回退由配置定义本身保证（[MemberConfigKeys.SIGN_IN_CYCLE_DAYS] 声明了
+     * 默认值与越界回退由配置定义本身保证（[MemberSettingKeys.SIGN_IN_CYCLE_DAYS] 声明了
      * `min=1, max=365`），所以这里不再重复防御——读到的一定是可用的正整数，
      * `% cycleDays` 不会除零。
      *
      * `configs` 为空只发生在未装配 system 的测试装配里，此时用定义的默认值。
      */
     private suspend fun cycleDays(): Int =
-        configs?.get(config.MemberConfigKeys.SIGN_IN_CYCLE_DAYS)
-            ?: config.MemberConfigKeys.SIGN_IN_CYCLE_DAYS.default
+        configs?.get(setting.MemberSettingKeys.SIGN_IN_CYCLE_DAYS)
+            ?: setting.MemberSettingKeys.SIGN_IN_CYCLE_DAYS.default
 
     // --- Sign-in config CRUD (admin) ---
 
