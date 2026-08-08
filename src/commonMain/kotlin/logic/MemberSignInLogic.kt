@@ -30,8 +30,8 @@ class MemberSignInLogic(
      */
     private val rewardPort: port.MemberRewardPort? = null,
     /**
-     * 全局设置读取端口（可空）：装配后「连续签到周期」可在后台调整；
-     * 未装配时一律用 [setting.MemberSettingKeys.SIGN_IN_CYCLE_DAYS_DEFAULT]。
+     * 全局设置读取端口（可空）：装配后签到的周期与循环开关可在后台调整；
+     * 未装配时一律用 [setting.MemberSettingKeys] 里各定义自带的默认值。
      */
     private val configs: logic.SystemSettingLogic? = null,
 ) {
@@ -49,6 +49,82 @@ class MemberSignInLogic(
         configs?.get(setting.MemberSettingKeys.SIGN_IN_CYCLE_DAYS)
             ?: setting.MemberSettingKeys.SIGN_IN_CYCLE_DAYS.default
 
+    /** 周期到头后是否回绕。关闭时封顶在第 N 天，见 [MemberSettingKeys.SIGN_IN_CYCLE_ENABLED]。 */
+    private suspend fun cycleEnabled(): Boolean =
+        configs?.get(setting.MemberSettingKeys.SIGN_IN_CYCLE_ENABLED)
+            ?: setting.MemberSettingKeys.SIGN_IN_CYCLE_ENABLED.default
+
+    companion object {
+        /** 这个入口能读写的 key 前缀，同时也是它的权限边界。 */
+        internal const val SIGN_IN_SETTING_PREFIX = "member.signin."
+
+        /**
+         * 守住签到设置入口的边界：只有 `member.signin.*` 能过。
+         *
+         * 放在 companion 里是为了能单独测 —— 这条判断一旦失效，
+         * `member:signin:update` 就等价于 `system:setting:update`。
+         */
+        internal fun requireSignInSettingKey(key: String) {
+            if (!key.startsWith(SIGN_IN_SETTING_PREFIX)) {
+                throw BadRequestException(
+                    "这个入口只能修改签到设置（$SIGN_IN_SETTING_PREFIX*），拒绝：$key"
+                )
+            }
+        }
+
+        /**
+         * 今天该按第几天发奖。
+         *
+         * 两种模式都保证落在 `1..cycle` 内 —— 配置只到第 N 天，超出就查不到配置、
+         * 奖励恒为 0。放在 companion 里是为了能脱开数据库单独测边界。
+         */
+        internal fun resolveRewardDay(continuousDay: Int, cycle: Int, cycling: Boolean): Int =
+            if (cycling) (continuousDay % cycle) + 1
+            else minOf(continuousDay + 1, cycle)
+    }
+
+    // --- Sign-in global settings (admin) ---
+
+    /**
+     * 签到的全局设置：读写都只认 `member.signin.` 前缀。
+     *
+     * 存的地方和系统设置是同一张表，但入口分开：系统设置页归超管，权限是
+     * `system:setting:*`；签到这几项要给运营改，权限是 `member:signin:*`。
+     * 前缀过滤是这个入口的**权限边界** —— 少了它，拿到签到权限的人就能借道改
+     * 支付、钱包一类的全局设置，等于把 `system:setting:update` 白送出去。
+     *
+     * 用前缀而不是写死 key 清单：以后 `member.signin.*` 下加设置项自动就在，
+     * 不会出现「加了配置但运营看不见」。
+     */
+    suspend fun listSignInSettings(): List<controller.admin.signin.dto.MemberSignInSettingVO> {
+        val cfg = configs ?: return emptyList()
+        val stored = cfg.list(setting.MemberSettingKeys.CATEGORY).associateBy { it.settingKey }
+        return cfg.definitions()
+            .filter { it.key.startsWith(SIGN_IN_SETTING_PREFIX) }
+            .map { definition ->
+                val current = stored[definition.key]?.value ?: definition.defaultRaw
+                controller.admin.signin.dto.MemberSignInSettingVO(
+                    category = definition.category,
+                    key = definition.key,
+                    value = current,
+                    valueType = definition.valueType.ordinal,
+                    name = definition.name,
+                    description = definition.description,
+                    defaultValue = definition.defaultRaw,
+                    isDefault = current == definition.defaultRaw,
+                )
+            }
+    }
+
+    /** 改签到设置。非签到 key 一律拒绝——见 [listSignInSettings] 里关于权限边界的说明。 */
+    suspend fun updateSignInSetting(key: String, raw: String) {
+        requireSignInSettingKey(key)
+        val cfg = configs
+            ?: throw IllegalStateException("SystemSettingLogic not wired; sign-in settings are read-only")
+        cfg.setByKey(key, raw)
+        log.info("Updated sign-in setting: key=$key")
+    }
+
     // --- Sign-in config CRUD (admin) ---
 
     /**
@@ -57,7 +133,8 @@ class MemberSignInLogic(
      * 两条都是「配了也永远不会生效」的情况，不拦住的话运营配完看不出任何异常，
      * 只有用户签到时才发现奖励不对：
      *
-     * - `day` 超出周期：签到取的是 `(连续天数 % 周期) + 1`，落不到这一天上。
+     * - `day` 超出周期：发奖档位由 [resolveRewardDay] 算出，两种模式都落在 `1..周期` 内，
+     *   配在周期之外的天数永远命中不了。
      * - `day` 重复：命中用的是 `oneWhere`，两条同 day 且启用时取哪条是不确定的
      *   （生产上出过一条 10 元、一条 0 分共存，第 7 天发多少全看运气）。
      */
@@ -123,13 +200,10 @@ class MemberSignInLogic(
             throw BadRequestException("Already signed in today")
         }
 
-        // 周期循环：第 N+1 天回到第 1 天。
-        //
-        // 取模而不是无限递增——原先 nextDay 一直往上涨，配置只到第 N 天，于是第 N+1 天起
-        // 查不到配置、奖励恒为 0，用户只能靠**故意断签**把连续天数清零才能重新拿奖励，
-        // 这跟签到想要的每日活跃恰好相反。
+        // 落在 1..cycle 内：配置只到第 N 天，越界就查不到配置、奖励恒为 0。
+        // 回绕还是封顶由 cycle_enabled 决定，见 resolveRewardDay。
         val cycle = cycleDays()
-        val nextDay = (summary.continuousDay % cycle) + 1
+        val nextDay = resolveRewardDay(summary.continuousDay, cycle, cycleEnabled())
 
         // Find matching config for the day
         val config = MemberSignInConfigTable.oneWhere {

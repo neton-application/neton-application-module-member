@@ -27,6 +27,25 @@ object MemberSettingKeys {
         max = 365,
     )
 
+    /**
+     * 周期到头之后是否回到第 1 天重新循环。
+     *
+     * 关闭时不是「停发」而是**封顶**：连续签到超过周期后，每天固定拿第 N 天的奖励。
+     * 停发会制造一个反向激励 —— 用户只能靠故意断签把连续天数清零才能重新拿到奖励，
+     * 这跟签到想要的每日活跃恰好相反。要「不再发」，把第 N 天的奖励配成 0 即可，
+     * 那是配置能表达的事，不需要再开一个语义。
+     */
+    val SIGN_IN_CYCLE_ENABLED: SettingDefinition<Boolean> = SettingDefinition.boolean(
+        category = CATEGORY,
+        key = "member.signin.cycle_enabled",
+        default = true,
+        name = "周期结束后循环",
+        description = "开启：第 N+1 天回到第 1 天重新开始。关闭：连续签到超过 N 天后，之后每天都按第 N 天发放。",
+    )
+
     /** 交给装配层聚合进 `SettingDefinitionRegistry`。 */
-    val definitions: List<SettingDefinition<*>> = listOf(SIGN_IN_CYCLE_DAYS)
+    val definitions: List<SettingDefinition<*>> = listOf(
+        SIGN_IN_CYCLE_DAYS,
+        SIGN_IN_CYCLE_ENABLED,
+    )
 }
