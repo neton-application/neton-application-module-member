@@ -144,6 +144,9 @@ class MemberUserController(
         point = point,
         groupId = groupId,
         registerIp = registerIp,
+        // 注册地按注册 IP 反查：新注册、还没登录过的账号 login_ip 是空的，
+        // 只认登录 IP 的话这类账号在后台完全看不出来自哪里。
+        registerRegion = geoLocation.resolve(registerIp),
         loginIp = loginIp,
         loginRegion = geoLocation.resolve(loginIp),
         loginDate = loginDate,

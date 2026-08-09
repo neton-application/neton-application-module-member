@@ -29,6 +29,8 @@ data class MemberVO(
     val groupId: Long? = null,
     val groupName: String? = null,
     val registerIp: String? = null,
+    /** 注册 IP 反查出的归属地。与 [loginRegion] 同一套 GeoLite 解析，只是入参不同。 */
+    val registerRegion: String? = null,
     val loginIp: String? = null,
     val loginRegion: String? = null,
     val loginDate: Long? = null,
