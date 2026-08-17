@@ -14,6 +14,8 @@ import neton.core.http.HttpException
 import neton.core.http.NetonErrorCode
 import neton.database.api.DbContext
 import neton.database.dsl.*
+import setting.MemberSettingKeys
+import setting.currentValue
 import neton.security.identity.UserId
 import neton.security.jwt.JwtAuthenticator
 import kotlin.random.Random
@@ -64,8 +66,25 @@ class BuiltinMemberIdentityAdapter(
             .first().long("id")
 
     override suspend fun issueToken(command: IssueMemberTokenCommand): MemberTokenBundle {
-        val sessionVersion = MemberTable.get(command.memberId)?.sessionVersion ?: 0L
         val deviceId = command.deviceId?.takeIf { it.isNotBlank() } ?: mintDeviceId()
+        val member = MemberTable.get(command.memberId)
+        var sessionVersion = member?.sessionVersion ?: 0L
+
+        if (MemberSettingKeys.SINGLE_DEVICE_LOGIN.currentValue()) {
+            val previous = member?.currentDeviceId
+            if (previous != null && previous != deviceId) {
+                // 换设备登录顶掉上一台：自增而不是读后写，并发登录才不会互相覆盖。
+                // 自增后必须回读真实值 —— 本地 +1 在并发下会算出一个别人已经用掉的
+                // 版本号，签出的 token 一刷新就失效。
+                MemberTable.query { where { Member::id eq command.memberId } }
+                    .update { increment(Member::sessionVersion) }
+                sessionVersion = MemberTable.get(command.memberId)?.sessionVersion ?: (sessionVersion + 1)
+            }
+            if (member != null && previous != deviceId) {
+                MemberTable.update(member.copy(sessionVersion = sessionVersion, currentDeviceId = deviceId))
+            }
+        }
+
         return buildBundle(command.memberId, deviceId, sessionVersion, deviceCreated = command.deviceId.isNullOrBlank())
     }
 

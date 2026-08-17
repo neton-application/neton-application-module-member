@@ -46,6 +46,8 @@ data class Member(
     val isGuest: Int = 0,
     /** 会话版本；改密/登出全端时递增，builtin token 携带并校验（MEMBER-IDENTITY §会话）。 */
     val sessionVersion: Long = 0,
+    /** 当前占用的设备；开启单设备登录后，换设备登录会顶掉上一台。null=尚未记录。 */
+    val currentDeviceId: String? = null,
     @SoftDelete
     val deleted: Int = 0,
     @CreatedAt
