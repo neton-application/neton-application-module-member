@@ -28,7 +28,10 @@ kotlin {
             dependencies {
                 implementation("com.netonstream.app:module-system")
                 implementation("com.netonstream.app:module-infra")
-                implementation("com.netonframework:geolite4k:0.1.0")
+                // group 是 com.netonstream（见 geolite4k/build.gradle.kts:10）。写成
+                // com.netonframework 会让 includeBuild 的坐标替换失配，Gradle 转而去
+                // 远程仓库找一个不存在的制品；版本也交给复合构建，不硬编。
+                implementation("com.netonstream:geolite4k")
                 // MEMBER-IDENTITY-ADAPTER(M1): 去掉 privchat:client/hook —— member 脱离 privchat 直接依赖。
                 implementation("com.netonstream:neton-core")
                 implementation("com.netonstream:neton-routing")
