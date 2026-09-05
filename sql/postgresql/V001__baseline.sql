@@ -350,17 +350,122 @@ CREATE UNIQUE INDEX uq_member_users_username ON public.member_users USING btree 
 -- module-member 初始化数据 (PostgreSQL)
 -- baseline: 会员中心 admin 菜单 seed (ON CONFLICT DO NOTHING)
 -- =============================================
-SET search_path = public;
+SET search_path = public;-- ── 后台菜单 ──────────────────────────────────────────────────────────
+--
+-- 🔴 **不写死菜单 id**：id 由 system_menus 的序列在安装时分配。
+--
+-- 以前每个模块把 id 硬编码在 SQL 里，模块之间就得就编号达成一致，而唯一的
+-- 保护是 `ON CONFLICT (id) DO NOTHING`——撞号不会报错，只会**静默**丢菜单。
+-- 实测后果：gateway 和 privchat 撞了 700-704，于是「令牌管理」「定价修改」这些
+-- AI 网关的按钮被挂到了「用户管理」「群组管理」底下，而没有任何地方报错。
+--
+-- 现在父子关系在语句内部用**模块内唯一的菜单名**连接（同一模块内不允许重名），
+-- 跨模块不再共享任何编号，撞号从结构上不可能发生。
+--
+-- 加菜单：往对应层级的 VALUES 里加一行即可，不需要挑号。
+-- 改菜单：后续迁移按 permission 定位；若该 permission 在本模块内不唯一，
+--         用 name 加父节点定位。
 
-INSERT INTO system_menus (id, name, permission, type, parent_id, path, component, icon, sort, status, created_at, updated_at) VALUES (3, '会员中心', '', 1, 0, '/member', NULL, 'ant-design:user-outlined', 3, 1, 0, 0) ON CONFLICT (id) DO NOTHING;
-INSERT INTO system_menus (id, name, permission, type, parent_id, path, component, icon, sort, status, created_at, updated_at) VALUES (300, '会员列表', 'member:user:list', 2, 3, 'user', 'member/user/index', 'ant-design:user-outlined', 1, 1, 0, 0) ON CONFLICT (id) DO NOTHING;
-INSERT INTO system_menus (id, name, permission, type, parent_id, path, component, icon, sort, status, created_at, updated_at) VALUES (301, '会员标签', 'member:tag:list', 2, 3, 'tag', 'member/tag/index', 'ant-design:tag-outlined', 2, 1, 0, 0) ON CONFLICT (id) DO NOTHING;
-INSERT INTO system_menus (id, name, permission, type, parent_id, path, component, icon, sort, status, created_at, updated_at) VALUES (302, '会员等级', 'member:level:list', 2, 3, 'level', 'member/level/index', 'ant-design:trophy-outlined', 3, 1, 0, 0) ON CONFLICT (id) DO NOTHING;
-INSERT INTO system_menus (id, name, permission, type, parent_id, path, component, icon, sort, status, created_at, updated_at) VALUES (303, '会员分组', 'member:group:list', 2, 3, 'group', 'member/group/index', 'ant-design:team-outlined', 4, 1, 0, 0) ON CONFLICT (id) DO NOTHING;
-INSERT INTO system_menus (id, name, permission, type, parent_id, path, component, icon, sort, status, created_at, updated_at) VALUES (304, '积分记录', 'member:point:list', 2, 3, 'point/record', 'member/point/record/index', 'ant-design:star-outlined', 5, 1, 0, 0) ON CONFLICT (id) DO NOTHING;
-INSERT INTO system_menus (id, name, permission, type, parent_id, path, component, icon, sort, status, created_at, updated_at) VALUES (305, '签到配置', 'member:signin-config:list', 2, 3, 'signin/config', 'member/signin/config/index', 'ant-design:calendar-outlined', 6, 1, 0, 0) ON CONFLICT (id) DO NOTHING;
-INSERT INTO system_menus (id, name, permission, type, parent_id, path, component, icon, sort, status, created_at, updated_at) VALUES (306, '签到记录', 'member:signin-record:list', 2, 3, 'signin/record', 'member/signin/record/index', 'ant-design:check-circle-outlined', 7, 1, 0, 0) ON CONFLICT (id) DO NOTHING;
-INSERT INTO system_menus (id, name, permission, type, parent_id, path, component, icon, sort, status, created_at, updated_at) VALUES (307, '会员配置', 'member:config:list', 2, 3, 'config', 'member/config/index', 'ant-design:setting-outlined', 8, 1, 0, 0) ON CONFLICT (id) DO NOTHING;
+WITH lvl1 AS (
+    INSERT INTO system_menus (name, permission, type, parent_id, path, component, icon, sort, status, created_at, updated_at)
+    VALUES
+        ('会员中心', '', 1, 0, '/member', NULL, 'ant-design:user-outlined', 3, 1, (extract(epoch from now()) * 1000)::bigint, (extract(epoch from now()) * 1000)::bigint)
+    RETURNING id, name
+),
+lvl2 AS (
+    INSERT INTO system_menus (name, permission, type, parent_id, path, component, icon, sort, status, created_at, updated_at)
+    SELECT v.name, v.permission, v.type, p.id, v.path, v.component, v.icon, v.sort, v.status, (extract(epoch from now()) * 1000)::bigint, (extract(epoch from now()) * 1000)::bigint
+    FROM (VALUES
+        ('会员列表', 'member:user:query', 2, '会员中心', 'user', 'member/user/index', 'ant-design:user-outlined', 1, 1),
+        ('会员标签', 'member:tag:query', 2, '会员中心', 'tag', 'member/tag/index', 'ant-design:tag-outlined', 2, 1),
+        ('会员等级', 'member:level:query', 2, '会员中心', 'level', 'member/level/index', 'ant-design:trophy-outlined', 3, 1),
+        ('会员分组', 'member:group:query', 2, '会员中心', 'group', 'member/group/index', 'ant-design:team-outlined', 4, 1),
+        ('积分记录', 'member:point:query', 2, '会员中心', 'point/record', 'member/point/record/index', 'ant-design:star-outlined', 5, 1),
+        ('签到配置', 'member:signin:query', 2, '会员中心', 'signin/config', 'member/signin/config/index', 'ant-design:calendar-outlined', 6, 1),
+        ('签到记录', 'member:signin:query', 2, '会员中心', 'signin/record', 'member/signin/record/index', 'ant-design:check-circle-outlined', 7, 1),
+        ('会员配置', 'member:config:query', 2, '会员中心', 'config', 'member/config/index', 'ant-design:setting-outlined', 8, 1),
+        ('邀请码管理', 'member:invite-code:query', 2, '会员中心', 'invite/code', 'member/invite/code/index', NULL, 9, 1)
+    ) AS v(name, permission, type, parent_name, path, component, icon, sort, status)
+    JOIN lvl1 p ON p.name = v.parent_name
+    RETURNING id, name
+),
+lvl3 AS (
+    INSERT INTO system_menus (name, permission, type, parent_id, path, component, icon, sort, status, created_at, updated_at)
+    SELECT v.name, v.permission, v.type, p.id, v.path, v.component, v.icon, v.sort, v.status, (extract(epoch from now()) * 1000)::bigint, (extract(epoch from now()) * 1000)::bigint
+    FROM (VALUES
+        ('会员地址查询', 'member:address:query', 3, '会员列表', NULL, NULL, NULL, 2, 1),
+        ('修改昵称词条', 'member:nickname:update', 3, '会员列表', NULL, NULL, NULL, 5, 1),
+        ('昵称词库查询', 'member:nickname:query', 3, '会员列表', NULL, NULL, NULL, 3, 1),
+        ('会员修改', 'member:user:update', 3, '会员列表', NULL, NULL, NULL, 1, 1),
+        ('删除昵称词条', 'member:nickname:delete', 3, '会员列表', NULL, NULL, NULL, 6, 1),
+        ('新增昵称词条', 'member:nickname:create', 3, '会员列表', NULL, NULL, NULL, 4, 1),
+        ('重设会员密码', 'member:user:update-password', 3, '会员列表', NULL, NULL, NULL, 7, 1),
+        ('删除会员标签', 'member:tag:delete', 3, '会员标签', NULL, NULL, NULL, 3, 1),
+        ('新增会员标签', 'member:tag:create', 3, '会员标签', NULL, NULL, NULL, 1, 1),
+        ('修改会员标签', 'member:tag:update', 3, '会员标签', NULL, NULL, NULL, 2, 1),
+        ('新增会员等级', 'member:level:create', 3, '会员等级', NULL, NULL, NULL, 1, 1),
+        ('删除会员等级', 'member:level:delete', 3, '会员等级', NULL, NULL, NULL, 3, 1),
+        ('修改会员等级', 'member:level:update', 3, '会员等级', NULL, NULL, NULL, 2, 1),
+        ('删除会员分组', 'member:group:delete', 3, '会员分组', NULL, NULL, NULL, 3, 1),
+        ('新增会员分组', 'member:group:create', 3, '会员分组', NULL, NULL, NULL, 1, 1),
+        ('修改会员分组', 'member:group:update', 3, '会员分组', NULL, NULL, NULL, 2, 1),
+        ('新增签到配置', 'member:signin:create', 3, '签到配置', NULL, NULL, NULL, 2, 1),
+        ('修改签到配置', 'member:signin:update', 3, '签到配置', NULL, NULL, NULL, 3, 1),
+        ('删除签到配置', 'member:signin:delete', 3, '签到配置', NULL, NULL, NULL, 4, 1),
+        ('修改会员配置', 'member:config:update', 3, '会员配置', NULL, NULL, NULL, 1, 1),
+        ('新增邀请码', 'member:invite-code:create', 3, '邀请码管理', NULL, NULL, NULL, 2, 1),
+        ('修改邀请码', 'member:invite-code:update', 3, '邀请码管理', NULL, NULL, NULL, 3, 1),
+        ('删除邀请码', 'member:invite-code:delete', 3, '邀请码管理', NULL, NULL, NULL, 4, 1)
+    ) AS v(name, permission, type, parent_name, path, component, icon, sort, status)
+    JOIN lvl2 p ON p.name = v.parent_name
+    RETURNING id, name
+),
+inserted AS (
+        SELECT id, name FROM lvl1
+        UNION ALL SELECT id, name FROM lvl2
+        UNION ALL SELECT id, name FROM lvl3
+)
+INSERT INTO system_role_menus (role_id, menu_id, created_at)
+SELECT r.id, m.id, (extract(epoch from now()) * 1000)::bigint
+FROM system_roles r
+JOIN inserted m ON m.name IN (
+        '会员中心',
+        '会员修改',
+        '会员分组',
+        '会员列表',
+        '会员地址查询',
+        '会员标签',
+        '会员等级',
+        '会员配置',
+        '修改会员分组',
+        '修改会员标签',
+        '修改会员等级',
+        '修改会员配置',
+        '修改昵称词条',
+        '修改签到配置',
+        '修改邀请码',
+        '删除会员分组',
+        '删除会员标签',
+        '删除会员等级',
+        '删除昵称词条',
+        '删除签到配置',
+        '删除邀请码',
+        '新增会员分组',
+        '新增会员标签',
+        '新增会员等级',
+        '新增昵称词条',
+        '新增签到配置',
+        '新增邀请码',
+        '昵称词库查询',
+        '积分记录',
+        '签到记录',
+        '签到配置',
+        '邀请码管理',
+        '重设会员密码'
+)
+WHERE r.code IN ('super_admin')
+ON CONFLICT DO NOTHING;
+
 
 -- nickname 词库 seed (NICK 填昵称引导 prefill); id/status/ts 走 default
 INSERT INTO member_nickname_adjective (word) VALUES
@@ -1617,32 +1722,7 @@ ALTER TABLE member_sign_in_configs
 ALTER TABLE member_sign_in_records
     ADD COLUMN IF NOT EXISTS cash_amount bigint DEFAULT 0 NOT NULL;
 
-
--- ─────────────────────────────────────────────────────────────
--- 原 V004__signin_permissions.sql
--- ─────────────────────────────────────────────────────────────
-
--- 签到管理权限点对齐 controller @Permission("member:signin:*")(MEMBER_SIGN_IN_REWARD 补丁③)。
--- 旧 seed 的 member:signin-config:list / member:signin-record:list 与 controller 校验值不一致,
--- 且缺 create/update/delete/query 按钮权限点 —— 管理员组即使绑了菜单也 Permission denied。
-UPDATE system_menus SET permission = 'member:signin:list' WHERE id = 305 AND permission = 'member:signin-config:list';
-UPDATE system_menus SET permission = 'member:signin:page' WHERE id = 306 AND permission = 'member:signin-record:list';
-
-INSERT INTO system_menus (id, parent_id, name, permission, type, sort, status, created_at, updated_at)
-VALUES
- (3050, 305, '签到配置查询', 'member:signin:query', 3, 1, 1, (extract(epoch from now())*1000)::bigint, (extract(epoch from now())*1000)::bigint),
- (3051, 305, '新增签到配置', 'member:signin:create', 3, 2, 1, (extract(epoch from now())*1000)::bigint, (extract(epoch from now())*1000)::bigint),
- (3052, 305, '修改签到配置', 'member:signin:update', 3, 3, 1, (extract(epoch from now())*1000)::bigint, (extract(epoch from now())*1000)::bigint),
- (3053, 305, '删除签到配置', 'member:signin:delete', 3, 4, 1, (extract(epoch from now())*1000)::bigint, (extract(epoch from now())*1000)::bigint)
-ON CONFLICT (id) DO NOTHING;
-
--- 绑到超级管理员(1)/管理员(2);其它角色由运营在角色管理页自行勾选。
-INSERT INTO system_role_menus (role_id, menu_id)
-SELECT r.id, m.id FROM system_roles r CROSS JOIN system_menus m
-WHERE r.id IN (1, 2) AND m.id IN (305, 306, 3050, 3051, 3052, 3053)
-ON CONFLICT DO NOTHING;
-
-SELECT setval(pg_get_serial_sequence('system_menus','id'), (SELECT MAX(id) FROM system_menus));
+-- 绑到超级管理员(1)/管理员(2);
 
 
 -- ─────────────────────────────────────────────────────────────
@@ -1683,204 +1763,6 @@ CREATE INDEX IF NOT EXISTS idx_member_invite_records_inviter ON member_invite_re
 
 
 -- ─────────────────────────────────────────────────────────────
--- 原 V006__invite_permissions.sql
--- ─────────────────────────────────────────────────────────────
-
--- MEMBER_INVITE_CODE §7:菜单 + 权限点(与 controller @Permission 一字不差,一次配齐)。
-INSERT INTO system_menus (id, parent_id, name, path, component, permission, type, sort, status, created_at, updated_at)
-VALUES
- (307, 3, '邀请码管理', 'invite/code', 'member/invite/code/index', 'member:invite-code:list', 2, 8, 1,
-  (extract(epoch from now())*1000)::bigint, (extract(epoch from now())*1000)::bigint)
-ON CONFLICT (id) DO NOTHING;
-
-INSERT INTO system_menus (id, parent_id, name, permission, type, sort, status, created_at, updated_at)
-VALUES
- (3070, 307, '邀请码查询', 'member:invite-code:query', 3, 1, 1, (extract(epoch from now())*1000)::bigint, (extract(epoch from now())*1000)::bigint),
- (3071, 307, '新增邀请码', 'member:invite-code:create', 3, 2, 1, (extract(epoch from now())*1000)::bigint, (extract(epoch from now())*1000)::bigint),
- (3072, 307, '修改邀请码', 'member:invite-code:update', 3, 3, 1, (extract(epoch from now())*1000)::bigint, (extract(epoch from now())*1000)::bigint),
- (3073, 307, '删除邀请码', 'member:invite-code:delete', 3, 4, 1, (extract(epoch from now())*1000)::bigint, (extract(epoch from now())*1000)::bigint)
-ON CONFLICT (id) DO NOTHING;
-
-INSERT INTO system_role_menus (role_id, menu_id)
-SELECT r.id, m.id FROM system_roles r CROSS JOIN system_menus m
-WHERE r.id IN (1, 2) AND m.id IN (307, 3070, 3071, 3072, 3073)
-ON CONFLICT DO NOTHING;
-
-SELECT setval(pg_get_serial_sequence('system_menus','id'), (SELECT MAX(id) FROM system_menus));
-
-
--- ─────────────────────────────────────────────────────────────
--- 原 V007__invite_menu_id_fix.sql
--- ─────────────────────────────────────────────────────────────
-
--- V006 seeded the invite-code menu at id=307, which collides with the member
--- config menu on deployments where 307 was already taken (ON CONFLICT skipped
--- the page row while the 3070-3073 buttons still landed). Converge both
--- histories to id=308.
-DELETE FROM system_role_menus rm
- WHERE rm.menu_id = 307
-   AND EXISTS (SELECT 1 FROM system_menus m WHERE m.id = 307 AND m.permission = 'member:invite-code:list');
-DELETE FROM system_menus WHERE id = 307 AND permission = 'member:invite-code:list';
-
-INSERT INTO system_menus (id, parent_id, name, path, component, permission, type, sort, status, created_at, updated_at)
-VALUES (308, 3, '邀请码管理', 'invite/code', 'member/invite/code/index', 'member:invite-code:list', 2, 9, 1,
-        (extract(epoch from now())*1000)::bigint, (extract(epoch from now())*1000)::bigint)
-ON CONFLICT (id) DO NOTHING;
-
-UPDATE system_menus SET parent_id = 308 WHERE id IN (3070, 3071, 3072, 3073);
-
-INSERT INTO system_role_menus (role_id, menu_id)
-SELECT r.id, 308
-  FROM system_roles r
- WHERE r.id IN (1, 2)
-   AND NOT EXISTS (SELECT 1 FROM system_role_menus rm WHERE rm.role_id = r.id AND rm.menu_id = 308);
-
-
--- ─────────────────────────────────────────────────────────────
--- 原 V008__align_member_admin_permissions.sql
--- ─────────────────────────────────────────────────────────────
-
--- Normalize member read permissions to resource-level `query` capabilities.
--- Route shapes such as page/list/get are transport details and must not create
--- separate RBAC capabilities for the same resource.
-
-WITH canonical(id, permission) AS (
-    VALUES
-        (300::bigint, 'member:user:query'),
-        (301::bigint, 'member:tag:query'),
-        (302::bigint, 'member:level:query'),
-        (303::bigint, 'member:group:query'),
-        (304::bigint, 'member:point:query'),
-        (305::bigint, 'member:signin:query'),
-        (306::bigint, 'member:signin:query'),
-        (307::bigint, 'member:config:query'),
-        (308::bigint, 'member:invite-code:query')
-)
-UPDATE system_menus menu
-   SET permission = canonical.permission,
-       updated_at = (extract(epoch from now()) * 1000)::bigint
-  FROM canonical
- WHERE menu.id = canonical.id
-   AND menu.permission IS DISTINCT FROM canonical.permission;
-
--- V004/V006 created query button nodes below page menus. Once the page itself
--- carries the query capability these two nodes are redundant.
-DELETE FROM system_role_menus
- WHERE menu_id IN (3050, 3070)
-   AND EXISTS (
-       SELECT 1
-         FROM system_menus menu
-        WHERE menu.id = system_role_menus.menu_id
-          AND menu.permission IN ('member:signin:query', 'member:invite-code:query')
-   );
-
-DELETE FROM system_menus
- WHERE id IN (3050, 3070)
-   AND permission IN ('member:signin:query', 'member:invite-code:query');
-
--- Query permissions live on page nodes. Only mutations and auxiliary user
--- resources remain as button capabilities.
-WITH required(parent_id, name, permission, sort) AS (
-    VALUES
-        (300::bigint, '会员修改',       'member:user:update',      1),
-        (300::bigint, '会员地址查询',   'member:address:query',    2),
-        (300::bigint, '昵称词库查询',   'member:nickname:query',   3),
-        (300::bigint, '新增昵称词条',   'member:nickname:create',  4),
-        (300::bigint, '修改昵称词条',   'member:nickname:update',  5),
-        (300::bigint, '删除昵称词条',   'member:nickname:delete',  6),
-
-        (301::bigint, '新增会员标签',   'member:tag:create',       1),
-        (301::bigint, '修改会员标签',   'member:tag:update',       2),
-        (301::bigint, '删除会员标签',   'member:tag:delete',       3),
-
-        (302::bigint, '新增会员等级',   'member:level:create',     1),
-        (302::bigint, '修改会员等级',   'member:level:update',     2),
-        (302::bigint, '删除会员等级',   'member:level:delete',     3),
-
-        (303::bigint, '新增会员分组',   'member:group:create',     1),
-        (303::bigint, '修改会员分组',   'member:group:update',     2),
-        (303::bigint, '删除会员分组',   'member:group:delete',     3),
-
-        (307::bigint, '修改会员配置',   'member:config:update',    1)
-)
-INSERT INTO system_menus (
-    parent_id, name, permission, type, sort, status, created_at, updated_at
-)
-SELECT
-    required.parent_id,
-    required.name,
-    required.permission,
-    3,
-    required.sort,
-    1,
-    (extract(epoch from now()) * 1000)::bigint,
-    (extract(epoch from now()) * 1000)::bigint
-FROM required
-WHERE NOT EXISTS (
-    SELECT 1
-      FROM system_menus existing
-     WHERE existing.permission = required.permission
-);
-
--- Built-in administrators retain the complete member administration surface.
--- Match stable role codes instead of deployment-specific numeric IDs.
-INSERT INTO system_role_menus (role_id, menu_id, created_at)
-SELECT
-    role.id,
-    menu.id,
-    (extract(epoch from now()) * 1000)::bigint
-FROM system_roles role
-CROSS JOIN system_menus menu
-WHERE role.code IN ('super_admin', 'admin')
-  AND (
-      menu.id IN (3, 300, 301, 302, 303, 304, 305, 306, 307, 308)
-      OR menu.permission IN (
-          'member:user:query',
-          'member:user:update',
-          'member:address:query',
-          'member:nickname:query',
-          'member:nickname:create',
-          'member:nickname:update',
-          'member:nickname:delete',
-          'member:tag:query',
-          'member:tag:create',
-          'member:tag:update',
-          'member:tag:delete',
-          'member:level:query',
-          'member:level:create',
-          'member:level:update',
-          'member:level:delete',
-          'member:group:query',
-          'member:group:create',
-          'member:group:update',
-          'member:group:delete',
-          'member:point:query',
-          'member:config:query',
-          'member:config:update',
-          'member:signin:query',
-          'member:signin:create',
-          'member:signin:update',
-          'member:signin:delete',
-          'member:invite-code:query',
-          'member:invite-code:create',
-          'member:invite-code:update',
-          'member:invite-code:delete'
-      )
-  )
-  AND NOT EXISTS (
-      SELECT 1
-        FROM system_role_menus existing
-       WHERE existing.role_id = role.id
-         AND existing.menu_id = menu.id
-  );
-
-SELECT setval(
-    pg_get_serial_sequence('system_menus', 'id'),
-    (SELECT MAX(id) FROM system_menus)
-);
-
-
--- ─────────────────────────────────────────────────────────────
 -- 原 V009__member_session_version.sql
 -- ─────────────────────────────────────────────────────────────
 
@@ -1914,58 +1796,6 @@ SELECT setval(
 
 -- MEMBER_INVITE_CODE:邀请码级自动打招呼用语(运营在后台按码配置;空=用全局 conf 兜底)。
 ALTER TABLE member_invite_codes ADD COLUMN IF NOT EXISTS welcome_message TEXT;
-
-
--- ─────────────────────────────────────────────────────────────
--- 原 V012__member_password_permission.sql
--- ─────────────────────────────────────────────────────────────
-
--- Admin capability: reset a member's login password.
---
--- Deliberately a permission of its own instead of reusing `member:user:update`:
--- resetting a password means taking over the account, so it must be grantable
--- (and revocable) separately from ordinary profile edits.
-
-WITH required(parent_id, name, permission, sort) AS (
-    VALUES
-        (300::bigint, '重设会员密码', 'member:user:update-password', 7)
-)
-INSERT INTO system_menus (
-    parent_id, name, permission, type, sort, status, created_at, updated_at
-)
-SELECT
-    required.parent_id,
-    required.name,
-    required.permission,
-    3,
-    required.sort,
-    1,
-    (extract(epoch from now()) * 1000)::bigint,
-    (extract(epoch from now()) * 1000)::bigint
-FROM required
-WHERE NOT EXISTS (
-    SELECT 1
-      FROM system_menus existing
-     WHERE existing.permission = required.permission
-);
-
--- Built-in administrators get it by default (same treatment as the other
--- member mutations in V008). Match stable role codes, not numeric ids.
-INSERT INTO system_role_menus (role_id, menu_id, created_at)
-SELECT
-    role.id,
-    menu.id,
-    (extract(epoch from now()) * 1000)::bigint
-FROM system_roles role
-CROSS JOIN system_menus menu
-WHERE role.code IN ('super_admin', 'admin')
-  AND menu.permission = 'member:user:update-password'
-  AND NOT EXISTS (
-      SELECT 1
-        FROM system_role_menus existing
-       WHERE existing.role_id = role.id
-         AND existing.menu_id = menu.id
-  );
 
 
 -- ─────────────────────────────────────────────────────────────
