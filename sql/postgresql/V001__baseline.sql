@@ -374,7 +374,9 @@ WITH lvl1 AS (
 ),
 lvl2 AS (
     INSERT INTO system_menus (name, permission, type, parent_id, path, component, icon, sort, status, created_at, updated_at)
-    SELECT v.name, v.permission, v.type, p.id, v.path, v.component, v.icon, v.sort, v.status, (extract(epoch from now()) * 1000)::bigint, (extract(epoch from now()) * 1000)::bigint
+    SELECT v.name, v.permission, v.type,
+           (SELECT p.id FROM lvl1 p WHERE p.name = v.parent_name),
+           v.path, v.component, v.icon, v.sort, v.status, (extract(epoch from now()) * 1000)::bigint, (extract(epoch from now()) * 1000)::bigint
     FROM (VALUES
         ('会员列表', 'member:user:query', 2, '会员中心', 'user', 'member/user/index', 'ant-design:user-outlined', 1, 1),
         ('会员标签', 'member:tag:query', 2, '会员中心', 'tag', 'member/tag/index', 'ant-design:tag-outlined', 2, 1),
@@ -386,12 +388,13 @@ lvl2 AS (
         ('会员配置', 'member:config:query', 2, '会员中心', 'config', 'member/config/index', 'ant-design:setting-outlined', 8, 1),
         ('邀请码管理', 'member:invite-code:query', 2, '会员中心', 'invite/code', 'member/invite/code/index', NULL, 9, 1)
     ) AS v(name, permission, type, parent_name, path, component, icon, sort, status)
-    JOIN lvl1 p ON p.name = v.parent_name
     RETURNING id, name
 ),
 lvl3 AS (
     INSERT INTO system_menus (name, permission, type, parent_id, path, component, icon, sort, status, created_at, updated_at)
-    SELECT v.name, v.permission, v.type, p.id, v.path, v.component, v.icon, v.sort, v.status, (extract(epoch from now()) * 1000)::bigint, (extract(epoch from now()) * 1000)::bigint
+    SELECT v.name, v.permission, v.type,
+           (SELECT p.id FROM lvl2 p WHERE p.name = v.parent_name),
+           v.path, v.component, v.icon, v.sort, v.status, (extract(epoch from now()) * 1000)::bigint, (extract(epoch from now()) * 1000)::bigint
     FROM (VALUES
         ('会员地址查询', 'member:address:query', 3, '会员列表', NULL, NULL, NULL, 2, 1),
         ('修改昵称词条', 'member:nickname:update', 3, '会员列表', NULL, NULL, NULL, 5, 1),
@@ -417,7 +420,6 @@ lvl3 AS (
         ('修改邀请码', 'member:invite-code:update', 3, '邀请码管理', NULL, NULL, NULL, 3, 1),
         ('删除邀请码', 'member:invite-code:delete', 3, '邀请码管理', NULL, NULL, NULL, 4, 1)
     ) AS v(name, permission, type, parent_name, path, component, icon, sort, status)
-    JOIN lvl2 p ON p.name = v.parent_name
     RETURNING id, name
 ),
 inserted AS (
@@ -465,6 +467,7 @@ JOIN inserted m ON m.name IN (
 )
 WHERE r.code IN ('super_admin')
 ON CONFLICT DO NOTHING;
+
 
 
 -- nickname 词库 seed (NICK 填昵称引导 prefill); id/status/ts 走 default
