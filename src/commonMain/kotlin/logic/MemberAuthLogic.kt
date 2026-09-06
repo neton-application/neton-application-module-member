@@ -149,6 +149,13 @@ class MemberAuthLogic(
      * App Store 审核指南 5.1.1(v) 要求 App 内可发起账号删除，这是它的服务端落点。
      */
     suspend fun deleteOwnAccount(userId: Long) {
+        // 0) 开关。客户端不显示入口只是展示层，这里才是真正关得掉的地方。
+        if (!authPolicy.accountDeletionEnabled) {
+            throw neton.core.http.HttpException(
+                neton.core.http.NetonErrorCode.PERMISSION_DENIED,
+                "Account deletion is not enabled",
+            )
+        }
         val member = MemberTable.get(userId)
             ?: throw NotFoundException("Member not found")
 

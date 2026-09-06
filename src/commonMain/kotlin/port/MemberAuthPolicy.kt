@@ -28,6 +28,15 @@ data class MemberAuthPolicy(
     val mobileRequired: Boolean = false,
     /** 手机号强制的注册时间锚，语义同 [inviteCodeRequiredSince]。 */
     val mobileRequiredSince: String? = null,
+    /**
+     * 是否开放**用户自助注销账号**（App Store 5.1.1(v) 要求的应用内删除入口）。
+     *
+     * 默认 **false**：注销不可逆，是否提供由发行方按合规要求显式打开，不能因为
+     * 忘配一行 conf 就让所有用户都能一键删号。bootstrap 的 auth 块下发同一份值，
+     * 客户端据此决定是否渲染入口；服务端在 [logic.MemberAuthLogic.deleteOwnAccount]
+     * 独立再判一次——入口藏起来不等于路由关掉了。
+     */
+    val accountDeletionEnabled: Boolean = false,
 ) {
     companion object {
         const val MODE_PHONE_SMS = "PHONE_SMS"
