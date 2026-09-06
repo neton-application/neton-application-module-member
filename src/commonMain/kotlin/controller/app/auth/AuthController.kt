@@ -103,6 +103,17 @@ class AuthController(
         memberAuthLogic.logout(identity.id.toLong())
     }
 
+    /**
+     * 注销自己的账号（软删除）。App Store 审核指南 5.1.1(v) 要求 App 内可发起。
+     *
+     * 只能注销**自己**：用户 id 取自会话身份，不接受请求体传入——否则就成了
+     * 「随便报一个 id 就能删别人账号」。
+     */
+    @Post("/delete-account")
+    suspend fun deleteAccount(identity: neton.core.interfaces.Identity) {
+        memberAuthLogic.deleteOwnAccount(identity.id.toLong())
+    }
+
     @Post("/refresh-token")
     @AllowAnonymous
     suspend fun refreshToken(@Body request: MemberRefreshTokenRequest): MemberLoginResponse {
