@@ -1,8 +1,8 @@
 package logic
 
-import com.netonframework.geolite4k.GeoLite4K
-import com.netonframework.geolite4k.GeoLiteLookupResult
-import com.netonframework.geolite4k.GeoLiteResolver
+import com.netonstream.geolite4k.GeoLite4K
+import com.netonstream.geolite4k.GeoLiteLookupResult
+import com.netonstream.geolite4k.GeoLiteResolver
 import neton.core.config.ConfigLoader
 
 /**
