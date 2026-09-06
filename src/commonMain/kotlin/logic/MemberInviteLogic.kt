@@ -257,6 +257,26 @@ class MemberInviteLogic(
 
     suspend fun recordOfInvitee(inviteeUserId: Long): MemberInviteRecord? = myBinding(inviteeUserId)
 
+    /**
+     * 补偿:重放邀请奖励回调(与 [retryAutoFriend] 同款运维入口)。
+     *
+     * **不校验结果、也无法校验**:奖励落在哪个模块、用什么状态记录,member 一概不知道
+     * (这正是 port 契约的目的)。所以本方法的语义只能是「把这条记录的奖励事件再发一遍」,
+     * 幂等由各回调自己按 ref 保证 —— 网关那边是台账 ref 唯一约束,重放不会二次入账。
+     * 调用方要确认是否真的到账,得去下游的账本看(网关:gateway_quota_transactions 里
+     * `ref = invite:{recordId}:inviter|invitee` 的行)。这里返回成功只代表事件发出去了。
+     *
+     * 记录不存在必须**报错**而不是静默返回:[dispatchInviteReward] 对缺失记录是 `?: return`,
+     * 那是给正常链路用的(不该因为一条脏记录影响注册);但运维手工补发时拿到 200 却什么都没发生,
+     * 比拿到一个 400 糟得多 —— 他会以为已经补上了。
+     */
+    suspend fun retryInviteReward(recordId: Long) {
+        MemberInviteRecordTable.get(recordId)
+            ?: throw BadRequestException("邀请记录不存在")
+        dispatchInviteReward(recordId)
+        log.info("member.invite.reward.retried", mapOf("recordId" to recordId))
+    }
+
     /** 后台补偿:对 FAILED 记录重试自动加好友。 */
     suspend fun retryAutoFriend(recordId: Long) {
         val record = MemberInviteRecordTable.get(recordId)

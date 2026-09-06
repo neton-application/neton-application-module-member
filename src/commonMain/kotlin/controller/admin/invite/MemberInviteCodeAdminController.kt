@@ -104,4 +104,15 @@ class MemberInviteCodeAdminController(
     suspend fun retryAutoFriend(@PathVariable recordId: Long) {
         inviteLogic.retryAutoFriend(recordId)
     }
+
+    /**
+     * 补偿:重放邀请奖励回调。下游发奖失败(额度库抖动、配置刚修好)时用它补发。
+     * 200 只代表事件已重放,**不代表已到账** —— 各回调按自己的 ref 幂等,
+     * 到账与否要去下游账本查(见 [logic.MemberInviteLogic.retryInviteReward] 的说明)。
+     */
+    @Post("/retry-invite-reward/{recordId}")
+    @Permission("member:invite-code:update")
+    suspend fun retryInviteReward(@PathVariable recordId: Long) {
+        inviteLogic.retryInviteReward(recordId)
+    }
 }
