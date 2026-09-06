@@ -18,6 +18,7 @@ data class Member(
     val password: String? = null,
     val nickname: String,
     val avatar: String? = null,
+    /** 账号状态，取值见 [MemberStatus]。 */
     val status: Int = 1,
     val levelId: Long? = null,
     val experience: Long = 0,
@@ -55,3 +56,29 @@ data class Member(
     @UpdatedAt
     val updatedAt: Long? = null
 )
+
+/**
+ * 账号状态。
+ *
+ * 🔴 判断"能不能用这个账号"要写成 `status == NORMAL`，不要写 `status != DISABLED`。
+ * 后者在新增状态时会**默默放行**——DELETED 就是这么被漏掉的一类：登录处原本四处
+ * 都写着 `if (status == 0) 拒绝`，加一个新状态它们一个都拦不住。
+ */
+object MemberStatus {
+    /** 正常。 */
+    const val NORMAL = 1
+
+    /** 被管理员禁用。 */
+    const val DISABLED = 0
+
+    /**
+     * 用户自己注销（软删除）。
+     *
+     * 数据保留：后台账号管理仍然看得到这条记录，状态显示「已删除」——运营要能查到
+     * "这个人注销过"，而不是账号凭空消失。用户侧则彻底不可用：不能登录，已签发的
+     * token 由 session_version 递增作废。
+     *
+     * 这是 App Store 审核指南 5.1.1(v) 要求的"App 内可发起账号删除"的落点。
+     */
+    const val DELETED = 2
+}

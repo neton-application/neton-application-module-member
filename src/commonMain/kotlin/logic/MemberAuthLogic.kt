@@ -86,8 +86,13 @@ class MemberAuthLogic(
             MemberTable.update(member)
         }
 
-        if (member.status == 0) {
-            throw BadRequestException("Account is disabled")
+        // 🔴 白名单判断：只有 NORMAL 放行。
+        // 写成 `== DISABLED 就拒绝` 的话，新增状态（如 DELETED）会被默默放行。
+        if (member.status != model.MemberStatus.NORMAL) {
+            throw BadRequestException(
+                if (member.status == model.MemberStatus.DELETED) "Account is deleted"
+                else "Account is disabled"
+            )
         }
 
         recordSuccessfulLogin(member, remoteIp)
@@ -109,14 +114,55 @@ class MemberAuthLogic(
                 buildMember = { registerViaAdapter(mobile, nickname = request.nickname, registerIp = remoteIp) },
             )
 
-        if (member.status == 0) {
-            throw BadRequestException("Account is disabled")
+        // 🔴 白名单判断：只有 NORMAL 放行。
+        // 写成 `== DISABLED 就拒绝` 的话，新增状态（如 DELETED）会被默默放行。
+        if (member.status != model.MemberStatus.NORMAL) {
+            throw BadRequestException(
+                if (member.status == model.MemberStatus.DELETED) "Account is deleted"
+                else "Account is disabled"
+            )
         }
 
         recordSuccessfulLogin(member, remoteIp)
 
         log.info("member.sms.login.success", mapOf("userId" to member.id, "mobile" to maskMobile(mobile)))
         return buildResponse(member.id, request.device)
+    }
+
+    /**
+     * 用户自己注销账号（软删除）。
+     *
+     * 🔴 **顺序是先撤销会话、后落状态，而且撤销失败就整体失败。**
+     *
+     * 会话是权威的那一半：application 的 `member_users.session_version` 和 privchat 的
+     * `privchat_devices.session_version` 是两个库里的两份数据，IM 鉴权读的是后者。
+     * 只把本库状态改成 DELETED，旧 token 照样能连 IM、照样能刷新出新 access token——
+     * 那不是注销，只是把登录入口关上。
+     *
+     * 反过来，若先写状态再撤销、撤销失败时又"幂等地"提前返回，重试永远补不上那一步：
+     * 状态已经是 DELETED，函数看一眼就结束了。所以这里**不按状态提前返回**——重复注销
+     * 会把撤销再执行一遍（server 侧对已 Revoked 的设备是空操作），让没做成的那一步有机会补上。
+     *
+     * 软删除而非物理删除：记录保留，后台账号管理仍看得到，状态显示「已删除」。运营要能
+     * 查到"这个人注销过"，而不是账号凭空消失。
+     *
+     * App Store 审核指南 5.1.1(v) 要求 App 内可发起账号删除，这是它的服务端落点。
+     */
+    suspend fun deleteOwnAccount(userId: Long) {
+        val member = MemberTable.get(userId)
+            ?: throw NotFoundException("Member not found")
+
+        // 1) 先撤销全部设备会话。失败就抛出去——宁可让客户端看到失败去重试，
+        //    也不能返回"注销成功"而会话还活着。
+        identityAdapter.revokeAllSessions(userId, reason = "account_deleted")
+
+        // 2) 再落本库状态。条件更新而不是读后写：并发注销/并发登录不会互相覆盖。
+        MemberTable.query { where { Member::id eq userId } }
+            .update {
+                set(Member::status, model.MemberStatus.DELETED)
+                increment(Member::sessionVersion)
+            }
+        log.info("member.delete", mapOf("userId" to userId, "already" to (member.status == model.MemberStatus.DELETED)))
     }
 
     suspend fun logout(userId: Long) {
@@ -135,6 +181,18 @@ class MemberAuthLogic(
         val bundle = identityAdapter.refreshToken(
             RefreshMemberTokenCommand(refreshToken = refreshToken, deviceId = deviceId),
         )
+        // 🔴 刷新也要看账号状态：server 校验的是 token 与设备会话，不知道 application
+        // 这边把账号标成了什么。少了这一道，注销后只要设备会话撤销有任何遗漏，旧
+        // refresh token 就能一直换出新的 access token——"注销"形同虚设。
+        //
+        // 放在签发之后：先让 server 认出这是谁（refresh token 里才有 uid），再按 uid 查状态。
+        val refreshed = MemberTable.get(bundle.userId)
+        if (refreshed != null && refreshed.status != model.MemberStatus.NORMAL) {
+            throw neton.core.http.HttpException(
+                neton.core.http.NetonErrorCode.USER_BANNED,
+                if (refreshed.status == model.MemberStatus.DELETED) "ACCOUNT_DELETED" else "ACCOUNT_DISABLED",
+            )
+        }
         log.info("member.token.refreshed", mapOf("userId" to bundle.userId))
         // R8.4a：refresh 路径也带最新 required actions（用户可能在另一端完成
         // 了 onboarding，本端 refresh 后应该立刻拿到空数组）。
@@ -228,8 +286,13 @@ class MemberAuthLogic(
                 ?: throw NotFoundException("Bound member not found")
         }
 
-        if (member.status == 0) {
-            throw BadRequestException("Account is disabled")
+        // 🔴 白名单判断：只有 NORMAL 放行。
+        // 写成 `== DISABLED 就拒绝` 的话，新增状态（如 DELETED）会被默默放行。
+        if (member.status != model.MemberStatus.NORMAL) {
+            throw BadRequestException(
+                if (member.status == model.MemberStatus.DELETED) "Account is deleted"
+                else "Account is disabled"
+            )
         }
 
         recordSuccessfulLogin(member, remoteIp)
@@ -372,8 +435,12 @@ class MemberAuthLogic(
             member = member.copy(password = PasswordHasher.hash(password))
             MemberTable.update(member)
         }
-        if (member.status == 0) {
-            throw neton.core.http.HttpException(neton.core.http.NetonErrorCode.USER_BANNED, "ACCOUNT_DISABLED")
+        // 同上：白名单判断，新增状态不会漏。
+        if (member.status != model.MemberStatus.NORMAL) {
+            throw neton.core.http.HttpException(
+                neton.core.http.NetonErrorCode.USER_BANNED,
+                if (member.status == model.MemberStatus.DELETED) "ACCOUNT_DELETED" else "ACCOUNT_DISABLED",
+            )
         }
         recordSuccessfulLogin(member, remoteIp)
         log.info("member.login.username.success", mapOf("userId" to member.id))
