@@ -38,10 +38,14 @@ class MemberInviteLogic(
         (1..8).map { CODE_ALPHABET[Random.nextInt(CODE_ALPHABET.length)] }.joinToString("")
 
     /**
-     * 校验邀请码可用性;返回码实体。[bindingUserId] 补填场景传入(校验不能绑自己的码)。
+     * 校验邀请码可用性;返回码实体。
      * 任一不满足抛 BadRequestException(统一文案,不泄露具体原因给枚举攻击)。
+     *
+     * **自己的码不再拒绝**:每个用户都能有自己的码(见 [getOrCreateMyCode]),而开启
+     * `inviteCodeRequired` 后未绑定就进不了主界面——拒绝自绑等于把码主永久关在补全页外面。
+     * 自绑改为在 [applyInTx] 里记成"无邀请人"(见那里),加好友与邀请奖励都不会触发。
      */
-    suspend fun validate(rawCode: String, bindingUserId: Long? = null): MemberInviteCode {
+    suspend fun validate(rawCode: String): MemberInviteCode {
         val code = rawCode.trim()
         if (code.isEmpty()) throw BadRequestException("INVITE_CODE_INVALID")
         val entity = MemberInviteCodeTable.oneWhere { MemberInviteCode::code eq code }
@@ -52,7 +56,6 @@ class MemberInviteLogic(
         if (entity.maxUses > 0 && entity.usedCount >= entity.maxUses) throw BadRequestException("INVITE_CODE_INVALID")
         val owner = entity.ownerUserId
         if (owner != null) {
-            if (bindingUserId != null && owner == bindingUserId) throw BadRequestException("INVITE_CODE_SELF")
             val inviter = MemberTable.get(owner)
             if (inviter == null || inviter.status == 0) throw BadRequestException("INVITE_CODE_INVALID")
         }
@@ -72,18 +75,27 @@ class MemberInviteLogic(
         registerIdentifierMasked: String?,
         bindScene: Int,
     ): MemberInviteRecord {
-        // 行级原子计数,防并发超发(评审 C:与 record 同事务,record 失败整体回滚)
-        val updated = db.execute(
-            "UPDATE member_invite_codes SET used_count = used_count + 1, updated_at = :now " +
-                "WHERE id = :id AND (max_uses = 0 OR used_count < max_uses)",
-            mapOf("id" to codeEntity.id, "now" to Clock.System.now().toEpochMilliseconds()),
-        )
-        if (updated == 0L) throw BadRequestException("INVITE_CODE_INVALID")
+        // 自绑(码主填自己的码):记来源但**不算一次使用**,也**没有邀请人**。
+        //
+        // 「谁邀请了你」这个问题,码主没有答案——inviterUserId=null 是这条记录的事实,
+        // 不是兜底值。下游 dispatchAutoFriend / dispatchInviteReward 都已经在 inviter
+        // 为空时返回,所以自绑天然不加好友、不发奖励,也就没有自邀刷奖的口子(那正是
+        // 旧的 INVITE_CODE_SELF 拒绝想防的事)。used_count 同理不加:自己不是自己的下线。
+        val selfBind = codeEntity.ownerUserId != null && codeEntity.ownerUserId == inviteeUserId
+        if (!selfBind) {
+            // 行级原子计数,防并发超发(评审 C:与 record 同事务,record 失败整体回滚)
+            val updated = db.execute(
+                "UPDATE member_invite_codes SET used_count = used_count + 1, updated_at = :now " +
+                    "WHERE id = :id AND (max_uses = 0 OR used_count < max_uses)",
+                mapOf("id" to codeEntity.id, "now" to Clock.System.now().toEpochMilliseconds()),
+            )
+            if (updated == 0L) throw BadRequestException("INVITE_CODE_INVALID")
+        }
         val record = MemberInviteRecordTable.insert(
             MemberInviteRecord(
                 codeId = codeEntity.id,
                 code = codeEntity.code,
-                inviterUserId = codeEntity.ownerUserId,
+                inviterUserId = codeEntity.ownerUserId.takeUnless { selfBind },
                 inviteeUserId = inviteeUserId,
                 registerMode = registerMode,
                 registerIdentifierMasked = registerIdentifierMasked,
@@ -94,7 +106,10 @@ class MemberInviteLogic(
         )
         log.info(
             "member.invite.bound",
-            mapOf("recordId" to record.id, "code" to codeEntity.code, "invitee" to inviteeUserId, "scene" to bindScene),
+            mapOf(
+                "recordId" to record.id, "code" to codeEntity.code,
+                "invitee" to inviteeUserId, "scene" to bindScene, "selfBind" to selfBind,
+            ),
         )
         return record
     }
@@ -169,7 +184,7 @@ class MemberInviteLogic(
     /** 注册后补填。已绑定 → 拒绝;成功返回 record。 */
     suspend fun bind(userId: Long, rawCode: String, registerMode: String, identifierMasked: String?): MemberInviteRecord {
         if (myBinding(userId) != null) throw BadRequestException("INVITE_ALREADY_BOUND")
-        val entity = validate(rawCode, bindingUserId = userId)
+        val entity = validate(rawCode)
         val record = db.transaction {
             applyInTx(entity, userId, registerMode, identifierMasked, bindScene = 2)
         }
