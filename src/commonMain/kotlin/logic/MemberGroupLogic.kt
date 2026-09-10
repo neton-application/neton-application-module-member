@@ -65,6 +65,13 @@ class MemberGroupLogic(
             if (size > 0) ((result.total + size - 1) / size).toInt() else 0)
     }
 
+    /** 全量分组（含停用）。后台要给「会员落在已停用分组上」这种历史数据也显示出名字。 */
+    suspend fun listAll(): List<MemberGroup> {
+        return MemberGroupTable.query {
+            orderBy(MemberGroup::id.desc())
+        }.list()
+    }
+
     suspend fun listAllSimple(): List<MemberGroup> {
         return MemberGroupTable.query {
             where { MemberGroup::status eq 1 }

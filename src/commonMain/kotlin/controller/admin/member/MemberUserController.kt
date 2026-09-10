@@ -7,6 +7,8 @@ import controller.admin.member.dto.UpdateMemberUserLevelRequest
 import controller.admin.member.dto.UpdateMemberUserPasswordRequest
 import controller.admin.member.dto.UpdateMemberUserPointRequest
 import dto.PageResponse
+import logic.MemberGroupLogic
+import logic.MemberLevelLogic
 import logic.MemberLogic
 import logic.NicknameGenerator
 import logic.MemberGeoLocationService
@@ -24,6 +26,8 @@ import neton.core.annotations.Query
 class MemberUserController(
     private val memberLogic: MemberLogic,
     private val nicknameGenerator: NicknameGenerator,
+    private val memberLevelLogic: MemberLevelLogic,
+    private val memberGroupLogic: MemberGroupLogic,
 ) {
     private val geoLocation = MemberGeoLocationService.fromConfig()
 
@@ -75,7 +79,11 @@ class MemberUserController(
     @Get("/get/{id}")
     @Permission("member:user:query")
     suspend fun get(@PathVariable id: Long): MemberVO? {
-        return memberLogic.get(id)?.toAdminVO()
+        val member = memberLogic.get(id) ?: return null
+        return member.toAdminVO(
+            levelName = member.levelId?.let { memberLevelLogic.get(it)?.name },
+            groupName = member.groupId?.let { memberGroupLogic.getById(it)?.name },
+        )
     }
 
     @Get("/page")
@@ -115,8 +123,17 @@ class MemberUserController(
         includeRobot,
         includeGuest,
         ).let { page ->
+            // 等级/分组名整页一次性解析：逐行去问会变成 N+1，而两张表都是几十行的
+            // 小字典，整表拉下来比按 id 逐个查还便宜。
+            val levelNames = memberLevelLogic.list().associate { it.id to it.name }
+            val groupNames = memberGroupLogic.listAll().associate { it.id to it.name }
             PageResponse(
-                list = page.list.map { it.toAdminVO() },
+                list = page.list.map {
+                    it.toAdminVO(
+                        levelName = it.levelId?.let(levelNames::get),
+                        groupName = it.groupId?.let(groupNames::get),
+                    )
+                },
                 total = page.total,
                 page = page.page,
                 size = page.size,
@@ -125,7 +142,10 @@ class MemberUserController(
         }
     }
 
-    private fun Member.toAdminVO() = MemberVO(
+    private fun Member.toAdminVO(
+        levelName: String? = null,
+        groupName: String? = null,
+    ) = MemberVO(
         id = id,
         identityProvider = identityProvider,
         username = username,
@@ -140,9 +160,11 @@ class MemberUserController(
         isGuest = isGuest,
         status = status,
         levelId = levelId,
+        levelName = levelName,
         experience = experience,
         point = point,
         groupId = groupId,
+        groupName = groupName,
         registerIp = registerIp,
         // 注册地按注册 IP 反查：新注册、还没登录过的账号 login_ip 是空的，
         // 只认登录 IP 的话这类账号在后台完全看不出来自哪里。
