@@ -41,7 +41,22 @@ class BuiltinMemberIdentityAdapter(
 
     companion object {
         const val ACCESS_TTL_SECONDS = 7200L          // 2h
-        const val REFRESH_TTL_SECONDS = 2592000L      // 30d
+
+        /**
+         * refresh token TTL：一年。
+         *
+         * [buildBundle] 每次续期都重新签发 refresh token，所以这是个**滑动窗口**——它真正
+         * 决定的是「连续多久不打开 App 会被登出」，不是「登录后多久必须重登」。
+         *
+         * 之前是 30 天，意思是一个月没打开的用户下次打开被踢回登录页。被踢掉的不是攻击者，
+         * 是那些本来还会回来的用户；而重新登录要走验证码，相当一部分人就此不回来了。
+         * 微信/Telegram 的会话基本是「除非主动吊销否则不过期」，一年已经接近那个体感。
+         *
+         * 安全性不靠这个 TTL 兜底：[onPasswordChanged] 会原子自增 `sessionVersion`，
+         * 而 [refreshToken] 校验 `sid == sessionVersion`——改密码一次作废该用户全部会话，
+         * 且立刻生效。那才是吊销开关，比等 token 自然过期快得多。
+         */
+        const val REFRESH_TTL_SECONDS = 31536000L     // 365d
         private val SCOPE = listOf("user")
         private const val ISSUER = "yese-builtin"
     }
