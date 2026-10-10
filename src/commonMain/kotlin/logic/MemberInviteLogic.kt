@@ -2,10 +2,10 @@ package logic
 
 import model.MemberInviteCode
 import model.MemberInviteRecord
-import model.Member
+import model.Account
 import table.MemberInviteCodeTable
 import table.MemberInviteRecordTable
-import table.MemberTable
+import table.AccountTable
 import neton.database.api.DbContext
 import neton.database.dsl.*
 import neton.logging.Logger
@@ -56,7 +56,7 @@ class MemberInviteLogic(
         if (entity.maxUses > 0 && entity.usedCount >= entity.maxUses) throw BadRequestException("INVITE_CODE_INVALID")
         val owner = entity.ownerUserId
         if (owner != null) {
-            val inviter = MemberTable.get(owner)
+            val inviter = AccountTable.get(owner)
             if (inviter == null || inviter.status == 0) throw BadRequestException("INVITE_CODE_INVALID")
         }
         return entity

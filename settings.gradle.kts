@@ -18,6 +18,7 @@ includeBuild("../geolite4k")
 // 不读本文件，所以这里只影响单仓构建。
 includeBuild("../../Neton/neton-application-module-system")
 includeBuild("../../Neton/neton-application-module-infra")
+includeBuild("../../Neton/neton-application-module-account")
 
 
 // canonicalize：统一用 ../../Neton/ 前缀指向 Neton canonical 工作区（跨工作区一致）

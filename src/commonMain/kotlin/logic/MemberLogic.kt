@@ -1,139 +1,135 @@
 package logic
 
-import dto.PageResponse
-import model.Member
+import kotlin.time.Clock
 import model.MemberLevelRecord
 import model.MemberPointRecord
-import table.MemberTable
+import model.MemberProfile
 import table.MemberLevelRecordTable
 import table.MemberPointRecordTable
+import table.MemberProfileTable
 import neton.database.dsl.*
 import neton.database.api.DbContext
-import neton.security.password.PasswordHasher
-
 import neton.logging.Logger
 
+/**
+ * 会员档案的读写入口：等级、经验、积分、分组。
+ *
+ * 余额与经验**只做原子更新**（`SET point = point + :n`），不做「读出来、加上、写回去」。
+ * 后者在并发下会丢更新：两次发奖同时读到旧值、各自写回，用户只拿到一次。
+ *
+ * 档案行惰性创建：第一次写入前用 `INSERT ... ON CONFLICT DO NOTHING` 补一行。
+ */
 @neton.core.annotations.Logic(logger = "logic.member")
 class MemberLogic(
     private val log: Logger,
     private val db: DbContext,
 ) {
 
-    suspend fun page(
-        page: Int,
-        size: Int,
-        nickname: String? = null,
-        mobile: String? = null,
-        /** 用户编号。数字主键做精确匹配，不做 `%x%`：中间匹配用不上主键索引，
-         *  语义也怪——搜 "123" 会把 100001230 和 100012345 一起捞出来，
-         *  而运营手里的 uid 从来都是完整的。
-         *  非数字输入由 controller 拦掉并直接返回空页，到不了这里。 */
-        uid: Long? = null,
-        username: String? = null,
-        status: Int? = null,
-        levelId: Long? = null,
-        groupId: Long? = null,
-        // 默认隐藏系统生成的陪玩机器人(is_robot=1)；admin 需查看时传 includeRobot=true。
-        includeRobot: Boolean = false,
-        // 默认隐藏无凭证游客(is_guest=1，如客服 widget 访客)；admin 需查看时传 includeGuest=true。
-        includeGuest: Boolean = false
-    ): PageResponse<Member> {
-        val result = MemberTable.query {
-            where {
-                and(
-                    whenNotBlank(nickname) { Member::nickname like "%$it%" },
-                    whenNotBlank(mobile) { Member::mobile like "%$it%" },
-                    whenNotBlank(username) { Member::username like "%$it%" },
-                    whenPresent(uid) { Member::id eq it },
-                    whenPresent(status) { Member::status eq it },
-                    whenPresent(levelId) { Member::levelId eq it },
-                    whenPresent(groupId) { Member::groupId eq it },
-                    // includeRobot=false → 过滤 is_robot=0；true → 传 null 跳过该条件。
-                    whenPresent(if (includeRobot) null else 0) { Member::isRobot eq it },
-                    whenPresent(if (includeGuest) null else 0) { Member::isGuest eq it }
-                )
-            }
-            orderBy(Member::id.desc())
-        }.page(page, size)
-        return PageResponse(result.items, result.total, page, size,
-            if (size > 0) ((result.total + size - 1) / size).toInt() else 0)
-    }
+    /** 读档案。没有档案（从没产生过成长数据）按全默认值返回，不建行。 */
+    suspend fun profile(userId: Long): MemberProfile =
+        MemberProfileTable.oneWhere { MemberProfile::userId eq userId } ?: MemberProfile(userId = userId)
 
-    suspend fun get(id: Long): Member? {
-        return MemberTable.get(id)
-    }
-
-    suspend fun update(member: Member) {
-        MemberTable.update(member)
-        log.info("Updated member: id=${member.id}")
-    }
-
-    /**
-     * 管理员重设会员登录密码。明文只在此方法内经 [PasswordHasher] 加盐哈希后落库，
-     * 不写日志、不回传（日志只记 userId）。与注册/登录同一套哈希，改完即可用新密码登录。
-     */
-    suspend fun updatePassword(userId: Long, rawPassword: String) {
-        val member = MemberTable.get(userId)
-            ?: throw IllegalArgumentException("Member not found: $userId")
-        MemberTable.update(member.copy(password = PasswordHasher.hash(rawPassword)))
-        log.info("Updated member password: userId=$userId")
+    /** 批量读档案，缺失的按默认值补齐。后台列表一页一次查询，不做 N+1。 */
+    suspend fun profiles(userIds: Collection<Long>): Map<Long, MemberProfile> {
+        if (userIds.isEmpty()) return emptyMap()
+        val found = MemberProfileTable.query { where { MemberProfile::userId `in` userIds.toList() } }
+            .list()
+            .associateBy { it.userId }
+        return userIds.associateWith { found[it] ?: MemberProfile(userId = it) }
     }
 
     suspend fun updateLevel(userId: Long, levelId: Long, level: Int, reason: String?) {
-        val member = MemberTable.get(userId)
-            ?: throw IllegalArgumentException("Member not found: $userId")
-
-        // Update member + create level record in a single transaction
         db.transaction {
-            MemberTable.update(member.copy(levelId = levelId))
-
+            ensure(userId)
+            db.execute(
+                "UPDATE member_profiles SET level_id = :levelId, updated_at = :now WHERE user_id = :userId",
+                mapOf("levelId" to levelId, "userId" to userId, "now" to now()),
+            )
             MemberLevelRecordTable.insert(MemberLevelRecord(
                 userId = userId,
                 levelId = levelId,
                 level = level,
                 reason = reason,
-                description = "Admin updated member level"
+                description = "Admin updated member level",
             ))
         }
-
         log.info("Updated member level: userId=$userId, levelId=$levelId, level=$level")
     }
 
+    suspend fun updateGroup(userId: Long, groupId: Long?) {
+        db.transaction {
+            ensure(userId)
+            db.execute(
+                "UPDATE member_profiles SET group_id = :groupId, updated_at = :now WHERE user_id = :userId",
+                mapOf("groupId" to groupId, "userId" to userId, "now" to now()),
+            )
+        }
+        log.info("Updated member group: userId=$userId, groupId=$groupId")
+    }
+
     /**
-     * Take [point] from a member's balance, atomically, and record it.
+     * 变更积分（正数加、负数减）并写流水，同一事务。
      *
-     * [updatePoint] reads the balance and writes it back, which is fine for crediting but not for
-     * a debit: two concurrent redemptions each read the same balance, each write it back, and the
-     * member pays once for two items — or the balance goes negative. This uses a conditional
-     * update instead, so the database decides who wins:
+     * 减到负数是允许的 —— 这是管理员手工调账的语义（冲正）。业务扣减一律走 [debitPoint]，
+     * 那条路径余额不足会拒绝。
      *
-     *     UPDATE member_users SET point = point - :n WHERE id = :id AND point >= :n
+     * 在调用方的事务里调用时跟随调用方提交 / 回滚（签到把记录、积分、经验、现金放在一个事务里）。
      *
-     * Zero affected rows means the balance was insufficient at the moment of the update, and
-     * nothing is written. On success the ledger row is written in the same transaction with the
-     * balance read back after the update, so `totalPoint` is the real post-debit figure.
+     * @return 变更后的余额
+     */
+    suspend fun changePoint(
+        userId: Long,
+        point: Int,
+        bizType: Int,
+        title: String,
+        description: String? = null,
+        bizId: String? = null,
+    ): Int {
+        var total = 0
+        db.transaction {
+            ensure(userId)
+            db.execute(
+                "UPDATE member_profiles SET point = point + :n, updated_at = :now WHERE user_id = :userId",
+                mapOf("n" to point, "userId" to userId, "now" to now()),
+            )
+            total = profile(userId).point
+            MemberPointRecordTable.insert(MemberPointRecord(
+                userId = userId,
+                bizType = bizType,
+                bizId = bizId,
+                title = title,
+                point = point,
+                totalPoint = total,
+                description = description,
+            ))
+        }
+        log.info("Changed member point: userId=$userId, point=$point, totalPoint=$total")
+        return total
+    }
+
+    /**
+     * 扣积分，余额不足则拒绝。
      *
-     * Runs inside the caller's transaction when there is one, so a caller can roll the debit back
-     * together with its own writes.
+     * 条件更新让数据库裁决谁赢：`... WHERE point >= :n`。影响行数为 0 = 当时余额不足，什么都不写。
+     * 两次并发兑换各自读到同一个余额再写回 —— 那样会一份钱买两样东西，或者余额变负。
      *
-     * @return false if the balance was insufficient; true if the debit and its ledger row were written.
+     * @return false = 余额不足；true = 已扣减并写流水
      */
     suspend fun debitPoint(userId: Long, point: Int, bizType: Int, title: String, description: String?): Boolean {
         require(point > 0) { "debit must be positive, got $point" }
         var debited = false
         db.transaction {
             val affected = db.execute(
-                "UPDATE member_users SET point = point - :n, updated_at = :now WHERE id = :id AND point >= :n",
-                mapOf("n" to point, "id" to userId, "now" to kotlin.time.Clock.System.now().toEpochMilliseconds()),
+                "UPDATE member_profiles SET point = point - :n, updated_at = :now WHERE user_id = :userId AND point >= :n",
+                mapOf("n" to point, "userId" to userId, "now" to now()),
             )
             if (affected == 1L) {
-                val after = MemberTable.get(userId) ?: throw IllegalArgumentException("Member not found: $userId")
                 MemberPointRecordTable.insert(MemberPointRecord(
                     userId = userId,
                     bizType = bizType,
                     title = title,
                     point = -point,
-                    totalPoint = after.point,
+                    totalPoint = profile(userId).point,
                     description = description,
                 ))
                 debited = true
@@ -143,80 +139,28 @@ class MemberLogic(
         return debited
     }
 
-    suspend fun updatePoint(userId: Long, point: Int, bizType: Int, title: String, description: String?) {
-        val member = MemberTable.get(userId)
-            ?: throw IllegalArgumentException("Member not found: $userId")
-
-        val newPoint = member.point + point
-
-        // Update member point + create point record in a single transaction
+    /** 加经验。经验只增不减。 */
+    suspend fun addExperience(userId: Long, experience: Int): Long {
+        require(experience >= 0) { "experience must not be negative, got $experience" }
+        var total = 0L
         db.transaction {
-            MemberTable.update(member.copy(point = newPoint))
-
-            MemberPointRecordTable.insert(MemberPointRecord(
-                userId = userId,
-                bizType = bizType,
-                title = title,
-                point = point,
-                totalPoint = newPoint,
-                description = description
-            ))
+            ensure(userId)
+            db.execute(
+                "UPDATE member_profiles SET experience = experience + :n, updated_at = :now WHERE user_id = :userId",
+                mapOf("n" to experience, "userId" to userId, "now" to now()),
+            )
+            total = profile(userId).experience
         }
-
-        log.info("Updated member point: userId=$userId, point=$point, totalPoint=$newPoint")
+        return total
     }
 
-    /** 扫所有 `is_robot=1` 且 nickname 为 null/空 的陪玩账号,用 [NicknameGenerator] 批量补昵称.
-     *
-     *  - generator 返 null (词库未初始化或单边空) → 该条计入 skippedPoolEmpty
-     *  - 单条 update 失败 → 计入 errors,继续下一条 (不抛, 保证大部分补成功)
-     *  - 已有非空 nickname 的 bot 不动 (admin 想重抽请先清空 nickname)
-     */
-    /**
-     * @param onlyEmpty true=只补 nickname='' 的(增量); false=重抽所有 is_robot=1(强制刷新).
-     */
-    suspend fun fillBotNicknames(generator: NicknameGenerator, onlyEmpty: Boolean = false): FillBotNicknamesResult {
-        // member_users.nickname 列定义 NOT NULL DEFAULT '' (V001).
-        // onlyEmpty=false: 重抽所有陪玩账号 (force regenerate, 旧丑名换新浪漫名).
-        // onlyEmpty=true : 只补 nickname='' (增量补漏).
-        val candidates = MemberTable.query {
-            where {
-                if (onlyEmpty) {
-                    and(
-                        Member::isRobot eq 1,
-                        Member::nickname eq "",
-                    )
-                } else {
-                    Member::isRobot eq 1
-                }
-            }
-        }.list()
-        var scanned = candidates.size
-        var filled = 0
-        var skippedPoolEmpty = 0
-        var errors = 0
-        for (m in candidates) {
-            val newNick = generator.next()
-            if (newNick == null) {
-                skippedPoolEmpty++
-                continue
-            }
-            try {
-                MemberTable.update(m.copy(nickname = newNick))
-                filled++
-            } catch (t: Throwable) {
-                errors++
-                log.info("fill_bot_nickname.failed id=${m.id} reason=${t.message ?: t::class.simpleName}")
-            }
-        }
-        log.info("fill_bot_nicknames.done scanned=$scanned filled=$filled skipped_pool_empty=$skippedPoolEmpty errors=$errors")
-        return FillBotNicknamesResult(scanned, filled, skippedPoolEmpty, errors)
+    private suspend fun ensure(userId: Long) {
+        db.execute(
+            "INSERT INTO member_profiles (user_id, created_at, updated_at) VALUES (:userId, :now, :now) " +
+                "ON CONFLICT (user_id) DO NOTHING",
+            mapOf("userId" to userId, "now" to now()),
+        )
     }
+
+    private fun now(): Long = Clock.System.now().toEpochMilliseconds()
 }
-
-data class FillBotNicknamesResult(
-    val scanned: Int,
-    val filled: Int,
-    val skippedPoolEmpty: Int,
-    val errors: Int,
-)

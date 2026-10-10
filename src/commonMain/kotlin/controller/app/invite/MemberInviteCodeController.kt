@@ -8,7 +8,7 @@ import neton.core.annotations.Post
 import neton.core.annotations.Body
 import neton.core.interfaces.Identity
 import logic.MemberInviteLogic
-import port.MemberAuthPolicy
+import port.AccountAuthPolicy
 
 /** 邀请码 app 端（MEMBER_INVITE_CODE §5.2）。 */
 @Controller("/member/invite-code")
@@ -71,7 +71,7 @@ class MemberInviteCodeController(
         val record = inviteLogic.bind(
             userId = identity.id.toLong(),
             rawCode = request.inviteCode,
-            registerMode = MemberAuthPolicy.MODE_PHONE_SMS,
+            registerMode = AccountAuthPolicy.MODE_PHONE_SMS,
             identifierMasked = null,
         )
         return BindResultVO(

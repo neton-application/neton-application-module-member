@@ -40,11 +40,12 @@ kotlin {
             dependencies {
                 implementation("com.netonstream.app:module-system")
                 implementation("com.netonstream.app:module-infra")
+                // 会员成长依赖账号：读账号存在性 / 昵称，并通过 AccountExtensions 接入注册流程。
+                implementation("com.netonstream.app:module-account")
                 // group 是 com.netonstream（见 geolite4k/build.gradle.kts:10）。写成
                 // com.netonframework 会让 includeBuild 的坐标替换失配，Gradle 转而去
                 // 远程仓库找一个不存在的制品；版本也交给复合构建，不硬编。
                 implementation("com.netonstream:geolite4k")
-                // MEMBER-IDENTITY-ADAPTER(M1): 去掉 privchat:client/hook —— member 脱离 privchat 直接依赖。
                 implementation("com.netonstream:neton-core")
                 implementation("com.netonstream:neton-routing")
                 implementation("com.netonstream:neton-security")

@@ -1,14 +1,13 @@
 package logic
 
 import dto.PageResponse
-import model.Member
+import model.Account
 import model.MemberSignInConfig
 import model.MemberSignInRecord
 import model.MemberPointRecord
-import table.MemberTable
+import table.AccountTable
 import table.MemberSignInConfigTable
 import table.MemberSignInRecordTable
-import table.MemberPointRecordTable
 import controller.admin.signin.dto.MemberSignInRecordVO
 import controller.admin.signin.dto.MemberSignInSummaryVO
 import neton.database.dsl.*
@@ -24,6 +23,8 @@ import kotlin.time.Clock
 class MemberSignInLogic(
     private val log: Logger,
     private val db: DbContext,
+    /** 积分与经验写在会员档案上（member_profiles），不再碰账号表。 */
+    private val memberLogic: MemberLogic,
     /**
      * 签到现金奖励发放端口（可空）：产品装配层（如 PrivChat）bind 后，
      * `cashAmount > 0` 的签到在事务内经此发放现金；未装配时配置了现金即签到失败（防静默不发）。
@@ -236,32 +237,19 @@ class MemberSignInLogic(
                 cashAmount = cashAmount
             ))
 
-            // Award points if applicable
+            // 积分 / 经验：走会员档案的原子更新，与签到记录同一事务。
             if (point > 0) {
-                val member = MemberTable.get(userId)
-                if (member != null) {
-                    val newPoint = member.point + point
-                    MemberTable.update(member.copy(point = newPoint))
-
-                    MemberPointRecordTable.insert(MemberPointRecord(
-                        userId = userId,
-                        bizType = 1, // Sign-in type
-                        bizId = insertedRecord.id.toString(),
-                        title = "Sign-in reward (Day $nextDay)",
-                        point = point,
-                        totalPoint = newPoint,
-                        description = "Daily sign-in reward"
-                    ))
-                }
+                memberLogic.changePoint(
+                    userId = userId,
+                    point = point,
+                    bizType = 1, // Sign-in type
+                    bizId = insertedRecord.id.toString(),
+                    title = "Sign-in reward (Day $nextDay)",
+                    description = "Daily sign-in reward",
+                )
             }
-
-            // Award experience if applicable
             if (experience > 0) {
-                val member = MemberTable.get(userId)
-                if (member != null) {
-                    val newExperience = member.experience + experience
-                    MemberTable.update(member.copy(experience = newExperience))
-                }
+                memberLogic.addExperience(userId, experience)
             }
 
             // Award cash if applicable（同事务；实现方异常 → 整体回滚，签到可重试）
@@ -309,7 +297,7 @@ class MemberSignInLogic(
             .distinct()
             .takeIf { it.isNotEmpty() }
             ?.let { ids ->
-                MemberTable.query { where { Member::id `in` ids } }
+                AccountTable.query { where { Account::id `in` ids } }
                     .list()
                     .associate { it.id to it.nickname }
             }
