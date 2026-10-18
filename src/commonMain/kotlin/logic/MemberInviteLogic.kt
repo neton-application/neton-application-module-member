@@ -10,6 +10,9 @@ import neton.database.api.DbContext
 import neton.database.dsl.*
 import neton.logging.Logger
 import neton.core.http.BadRequestException
+import neton.core.http.HttpException
+import neton.core.http.NetonErrorCode
+import neton.core.http.NotFoundException
 import kotlin.time.Clock
 import kotlin.random.Random
 
@@ -47,17 +50,17 @@ class MemberInviteLogic(
      */
     suspend fun validate(rawCode: String): MemberInviteCode {
         val code = rawCode.trim()
-        if (code.isEmpty()) throw BadRequestException("INVITE_CODE_INVALID")
+        if (code.isEmpty()) throw BadRequestException(MemberErrorCodes.INVITE_CODE_INVALID)
         val entity = MemberInviteCodeTable.oneWhere { MemberInviteCode::code eq code }
-            ?: throw BadRequestException("INVITE_CODE_INVALID")
+            ?: throw BadRequestException(MemberErrorCodes.INVITE_CODE_INVALID)
         val now = Clock.System.now().toEpochMilliseconds()
-        if (entity.status != 1) throw BadRequestException("INVITE_CODE_INVALID")
-        if (entity.expiresAt != null && entity.expiresAt <= now) throw BadRequestException("INVITE_CODE_INVALID")
-        if (entity.maxUses > 0 && entity.usedCount >= entity.maxUses) throw BadRequestException("INVITE_CODE_INVALID")
+        if (entity.status != 1) throw BadRequestException(MemberErrorCodes.INVITE_CODE_INVALID)
+        if (entity.expiresAt != null && entity.expiresAt <= now) throw BadRequestException(MemberErrorCodes.INVITE_CODE_INVALID)
+        if (entity.maxUses > 0 && entity.usedCount >= entity.maxUses) throw BadRequestException(MemberErrorCodes.INVITE_CODE_INVALID)
         val owner = entity.ownerUserId
         if (owner != null) {
             val inviter = AccountTable.get(owner)
-            if (inviter == null || inviter.status == 0) throw BadRequestException("INVITE_CODE_INVALID")
+            if (inviter == null || inviter.status == 0) throw BadRequestException(MemberErrorCodes.INVITE_CODE_INVALID)
         }
         return entity
     }
@@ -89,7 +92,7 @@ class MemberInviteLogic(
                     "WHERE id = :id AND (max_uses = 0 OR used_count < max_uses)",
                 mapOf("id" to codeEntity.id, "now" to Clock.System.now().toEpochMilliseconds()),
             )
-            if (updated == 0L) throw BadRequestException("INVITE_CODE_INVALID")
+            if (updated == 0L) throw BadRequestException(MemberErrorCodes.INVITE_CODE_INVALID)
         }
         val record = MemberInviteRecordTable.insert(
             MemberInviteRecord(
@@ -183,7 +186,7 @@ class MemberInviteLogic(
 
     /** 注册后补填。已绑定 → 拒绝;成功返回 record。 */
     suspend fun bind(userId: Long, rawCode: String, registerMode: String, identifierMasked: String?): MemberInviteRecord {
-        if (myBinding(userId) != null) throw BadRequestException("INVITE_ALREADY_BOUND")
+        if (myBinding(userId) != null) throw BadRequestException(MemberErrorCodes.INVITE_ALREADY_BOUND)
         val entity = validate(rawCode)
         val record = db.transaction {
             applyInTx(entity, userId, registerMode, identifierMasked, bindScene = 2)
@@ -213,7 +216,7 @@ class MemberInviteLogic(
                     ),
                 )
             }
-            if (++attempt > 5) throw BadRequestException("邀请码生成冲突,请重试")
+            if (++attempt > 5) throw HttpException(NetonErrorCode.OPERATION_CONFLICT, MemberErrorCodes.INVITE_CODE_GENERATION_CONFLICT)
         }
     }
 
@@ -222,7 +225,11 @@ class MemberInviteLogic(
     suspend fun adminCreate(input: MemberInviteCode): MemberInviteCode {
         val explicit = input.code.trim()
         if (explicit.isNotEmpty() && !CODE_REGEX.matches(explicit)) {
-            throw BadRequestException("邀请码为 1-32 位字符(不含空白)")
+            throw HttpException(
+                NetonErrorCode.INVALID_FORMAT,
+                MemberErrorCodes.INVITE_CODE_FORMAT_INVALID,
+                MemberErrorCodes.field("code", MemberErrorCodes.INVITE_CODE_FORMAT_INVALID),
+            )
         }
         val now = Clock.System.now().toEpochMilliseconds()
         var attempt = 0
@@ -232,14 +239,18 @@ class MemberInviteLogic(
             if (exists == null) {
                 return MemberInviteCodeTable.insert(input.copy(code = code, usedCount = 0, createdAt = now, updatedAt = now))
             }
-            if (explicit.isNotEmpty()) throw BadRequestException("邀请码已存在")
-            if (++attempt > 5) throw BadRequestException("邀请码生成冲突,请重试")
+            if (explicit.isNotEmpty()) throw HttpException(
+                NetonErrorCode.RESOURCE_ALREADY_EXISTS,
+                MemberErrorCodes.INVITE_CODE_ALREADY_EXISTS,
+                MemberErrorCodes.field("code", MemberErrorCodes.INVITE_CODE_ALREADY_EXISTS),
+            )
+            if (++attempt > 5) throw HttpException(NetonErrorCode.OPERATION_CONFLICT, MemberErrorCodes.INVITE_CODE_GENERATION_CONFLICT)
         }
     }
 
     suspend fun adminUpdate(input: MemberInviteCode) {
         val existing = MemberInviteCodeTable.get(input.id)
-            ?: throw BadRequestException("邀请码不存在")
+            ?: throw NotFoundException(MemberErrorCodes.INVITE_CODE_NOT_FOUND)
         // code/owner/usedCount 不可改(改码等于换码;owner 改绑争议大,v1 禁止)
         MemberInviteCodeTable.update(
             existing.copy(
@@ -287,7 +298,7 @@ class MemberInviteLogic(
      */
     suspend fun retryInviteReward(recordId: Long) {
         MemberInviteRecordTable.get(recordId)
-            ?: throw BadRequestException("邀请记录不存在")
+            ?: throw NotFoundException(MemberErrorCodes.INVITE_RECORD_NOT_FOUND)
         dispatchInviteReward(recordId)
         log.info("member.invite.reward.retried", mapOf("recordId" to recordId))
     }
@@ -295,12 +306,13 @@ class MemberInviteLogic(
     /** 后台补偿:对 FAILED 记录重试自动加好友。 */
     suspend fun retryAutoFriend(recordId: Long) {
         val record = MemberInviteRecordTable.get(recordId)
-            ?: throw BadRequestException("邀请记录不存在")
+            ?: throw NotFoundException(MemberErrorCodes.INVITE_RECORD_NOT_FOUND)
         if (record.autoFriendStatus == 1) return
         dispatchAutoFriend(recordId)
         val after = MemberInviteRecordTable.get(recordId)
         if (after?.autoFriendStatus != 1) {
-            throw BadRequestException("补偿失败:${after?.autoFriendError ?: "未知原因"}")
+            log.warn("member.invite.autofriend.retry.failed", mapOf("recordId" to recordId, "error" to (after?.autoFriendError ?: "unknown")))
+            throw HttpException(NetonErrorCode.SERVICE_UNAVAILABLE, MemberErrorCodes.INVITE_AUTO_FRIEND_RETRY_FAILED)
         }
     }
 

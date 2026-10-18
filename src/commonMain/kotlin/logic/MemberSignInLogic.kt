@@ -15,6 +15,9 @@ import neton.database.api.DbContext
 
 import neton.logging.Logger
 import neton.core.http.BadRequestException
+import neton.core.http.HttpException
+import neton.core.http.NetonErrorCode
+import neton.core.http.NotFoundException
 import kotlin.time.Clock
 
 // 注意：不用 @Logic ——本类需要注入可选的 [port.MemberRewardPort]（KSP Logic 装配只支持
@@ -68,7 +71,8 @@ class MemberSignInLogic(
         internal fun requireSignInSettingKey(key: String) {
             if (!key.startsWith(SIGN_IN_SETTING_PREFIX)) {
                 throw BadRequestException(
-                    "这个入口只能修改签到设置（$SIGN_IN_SETTING_PREFIX*），拒绝：$key"
+                    MemberErrorCodes.SIGN_IN_SETTING_KEY_FORBIDDEN,
+                    MemberErrorCodes.field("key", MemberErrorCodes.SIGN_IN_SETTING_KEY_FORBIDDEN),
                 )
             }
         }
@@ -121,7 +125,7 @@ class MemberSignInLogic(
     suspend fun updateSignInSetting(key: String, raw: String) {
         requireSignInSettingKey(key)
         val cfg = configs
-            ?: throw IllegalStateException("SystemSettingLogic not wired; sign-in settings are read-only")
+            ?: throw HttpException(NetonErrorCode.SERVICE_UNAVAILABLE, MemberErrorCodes.SIGN_IN_SETTINGS_READ_ONLY)
         cfg.setByKey(key, raw)
         log.info("Updated sign-in setting: key=$key")
     }
@@ -142,8 +146,10 @@ class MemberSignInLogic(
     private suspend fun validateConfig(config: MemberSignInConfig, excludeId: Long?) {
         val cycle = cycleDays()
         if (config.day !in 1..cycle) {
-            throw BadRequestException(
-                "签到天数必须在 1..$cycle 之间（当前连续签到周期为 $cycle 天）"
+            throw HttpException(
+                NetonErrorCode.PARAM_OUT_OF_RANGE,
+                MemberErrorCodes.SIGN_IN_DAY_OUT_OF_RANGE,
+                MemberErrorCodes.field("day", MemberErrorCodes.SIGN_IN_DAY_OUT_OF_RANGE),
             )
         }
         val duplicated = MemberSignInConfigTable
@@ -151,7 +157,11 @@ class MemberSignInLogic(
             .list()
             .any { row -> row.id != excludeId }
         if (duplicated) {
-            throw BadRequestException("第 ${config.day} 天已存在配置，请勿重复添加")
+            throw HttpException(
+                NetonErrorCode.RESOURCE_ALREADY_EXISTS,
+                MemberErrorCodes.SIGN_IN_CONFIG_DAY_EXISTS,
+                MemberErrorCodes.field("day", MemberErrorCodes.SIGN_IN_CONFIG_DAY_EXISTS),
+            )
         }
     }
 
@@ -164,7 +174,7 @@ class MemberSignInLogic(
 
     suspend fun updateConfig(config: MemberSignInConfig) {
         val existing = MemberSignInConfigTable.get(config.id)
-            ?: throw BadRequestException("Sign-in config not found: id=${config.id}")
+            ?: throw NotFoundException(MemberErrorCodes.SIGN_IN_CONFIG_NOT_FOUND)
         validateConfig(config, excludeId = config.id)
         // 全列 update：请求构造的 config 不带时间戳，必须保留原行 created_at，
         // 否则写 null 触发 23502 非空约束（与 MenuLogic.update 同款修复）。
@@ -198,7 +208,7 @@ class MemberSignInLogic(
         // Get today's sign-in summary to determine continuous days
         val summary = getSummary(userId)
         if (summary.todaySigned) {
-            throw BadRequestException("Already signed in today")
+            throw HttpException(NetonErrorCode.DUPLICATE_OPERATION, MemberErrorCodes.ALREADY_SIGNED_IN_TODAY)
         }
 
         // 落在 1..cycle 内：配置只到第 N 天，越界就查不到配置、奖励恒为 0。
@@ -221,9 +231,8 @@ class MemberSignInLogic(
         // 现金奖励已配置但产品未装配发放端口：直接失败（fail-fast），
         // 不允许「签到成功但现金静默没发」。
         if (cashAmount > 0 && rewardPort == null) {
-            throw IllegalStateException(
-                "Sign-in cash reward configured (day=$nextDay, cashAmount=$cashAmount) but no MemberRewardPort wired"
-            )
+            log.error("Sign-in cash reward configured (day=$nextDay, cashAmount=$cashAmount) but no MemberRewardPort wired")
+            throw HttpException(NetonErrorCode.SERVICE_UNAVAILABLE, MemberErrorCodes.SIGN_IN_CASH_REWARD_UNAVAILABLE)
         }
 
         // Create sign-in record + award points/experience/cash in a single transaction

@@ -45,9 +45,11 @@ class SignInSettingKeyGuardTest {
     }
 
     @Test
-    fun the_rejection_names_the_offending_key() {
-        // 运营看到的提示要能指出是哪个 key 被拒，否则只能猜
+    fun the_rejection_is_a_machine_code_on_the_key_field() {
+        // message 是机器码，前端按码翻译；被拒的是哪个字段放在字段级错误里
         val e = assertFailsWith<BadRequestException> { guard("payment.fee.rate") }
-        assertEquals(true, e.message?.contains("payment.fee.rate"))
+        assertEquals(MemberErrorCodes.SIGN_IN_SETTING_KEY_FORBIDDEN, e.message)
+        assertEquals(listOf("key"), e.errors.map { it.path })
+        assertEquals(MemberErrorCodes.SIGN_IN_SETTING_KEY_FORBIDDEN, e.errors.single().code)
     }
 }

@@ -27,7 +27,7 @@ class MemberGroupLogic(
 
     suspend fun update(request: UpdateMemberGroupRequest) {
         MemberGroupTable.get(request.id)
-            ?: throw NotFoundException("Member group not found")
+            ?: throw NotFoundException(MemberErrorCodes.MEMBER_GROUP_NOT_FOUND)
         MemberGroupTable.update(
             MemberGroup(
                 id = request.id,
@@ -40,7 +40,7 @@ class MemberGroupLogic(
 
     suspend fun delete(id: Long) {
         MemberGroupTable.get(id)
-            ?: throw NotFoundException("Member group not found")
+            ?: throw NotFoundException(MemberErrorCodes.MEMBER_GROUP_NOT_FOUND)
         MemberGroupTable.destroy(id)
     }
 

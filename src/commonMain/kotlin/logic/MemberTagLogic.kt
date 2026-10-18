@@ -21,13 +21,13 @@ class MemberTagLogic(
 
     suspend fun update(request: UpdateMemberTagRequest) {
         MemberTagTable.get(request.id)
-            ?: throw NotFoundException("Member tag not found")
+            ?: throw NotFoundException(MemberErrorCodes.MEMBER_TAG_NOT_FOUND)
         MemberTagTable.update(MemberTag(id = request.id, name = request.name))
     }
 
     suspend fun delete(id: Long) {
         MemberTagTable.get(id)
-            ?: throw NotFoundException("Member tag not found")
+            ?: throw NotFoundException(MemberErrorCodes.MEMBER_TAG_NOT_FOUND)
         MemberTagTable.destroy(id)
     }
 

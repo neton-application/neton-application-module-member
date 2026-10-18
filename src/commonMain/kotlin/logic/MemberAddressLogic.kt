@@ -31,7 +31,7 @@ class MemberAddressLogic(
     suspend fun update(userId: Long, request: UpdateAddressRequest) {
         val existing = AddressTable.get(request.id)
             ?.takeIf { it.userId == userId }
-            ?: throw NotFoundException("Address not found: ${request.id}")
+            ?: throw NotFoundException(MemberErrorCodes.ADDRESS_NOT_FOUND)
 
         if (request.defaultStatus == 1) {
             clearDefaultAddress(userId)
@@ -48,7 +48,7 @@ class MemberAddressLogic(
     suspend fun delete(userId: Long, id: Long) {
         val existing = AddressTable.get(id)
             ?.takeIf { it.userId == userId }
-            ?: throw NotFoundException("Address not found: $id")
+            ?: throw NotFoundException(MemberErrorCodes.ADDRESS_NOT_FOUND)
         AddressTable.destroy(existing.id)
     }
 
