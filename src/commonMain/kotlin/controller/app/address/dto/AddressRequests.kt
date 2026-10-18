@@ -1,6 +1,7 @@
 package controller.app.address.dto
 
 import kotlinx.serialization.Serializable
+import logic.MemberErrorCodes
 import neton.validation.annotations.Max
 import neton.validation.annotations.Min
 import neton.validation.annotations.NotBlank
@@ -14,7 +15,7 @@ data class CreateAddressRequest(
     val name: String,
 
     @property:NotBlank
-    @property:Pattern(regex = "^1\\d{10}$", message = "mobile format is invalid")
+    @property:Pattern(regex = "^1\\d{10}$", message = MemberErrorCodes.ADDRESS_MOBILE_INVALID)
     val mobile: String,
 
     @property:Size(min = 1, max = 32)
@@ -39,7 +40,7 @@ data class UpdateAddressRequest(
     val name: String,
 
     @property:NotBlank
-    @property:Pattern(regex = "^1\\d{10}$", message = "mobile format is invalid")
+    @property:Pattern(regex = "^1\\d{10}$", message = MemberErrorCodes.ADDRESS_MOBILE_INVALID)
     val mobile: String,
 
     @property:Size(min = 1, max = 32)

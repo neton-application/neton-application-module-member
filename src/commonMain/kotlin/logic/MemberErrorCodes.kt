@@ -19,6 +19,8 @@ object MemberErrorCodes {
     // ---- 收货地址 ----
     /** 地址不存在或不属于当前用户（不区分，避免探测他人地址）。 */
     const val ADDRESS_NOT_FOUND = "ADDRESS_NOT_FOUND"
+    /** 收货人手机号格式不对（字段错误 `mobile`，来自 `@Pattern`）。 */
+    const val ADDRESS_MOBILE_INVALID = "ADDRESS_MOBILE_INVALID"
 
     // ---- 邀请码 ----
     /** 邀请码不可用：不存在 / 停用 / 过期 / 用尽 / 邀请人停用统一成这一个码，防枚举。 */
